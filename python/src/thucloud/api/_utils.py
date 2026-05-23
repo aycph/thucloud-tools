@@ -14,6 +14,8 @@ __all__ = [
     'parse_js_obj',
     'ProgressCallback',
     'download',
+    'UrlGetter',
+    'default_get',
     'traverse',
 ]
 
@@ -178,11 +180,8 @@ class ProgressCallback(Protocol):
         /,
     ) -> None: ...
 
-DEFAULT_TIMEOUT = (5, 10)
-DEFAULT_CHUNK_SIZE = 256 * 1024
-
 def _get_content_length(response: requests.Response) -> int | None:
-    # 有 Encoding 时 Content-Length 不可信，不提供
+    # 有 Content-Encoding 时 Content-Length 不可信，不提供
     if response.headers.get('Transfer-Encoding'):
         return None
     encoding = response.headers.get('Content-Encoding')
@@ -204,6 +203,9 @@ def _get_content_length(response: requests.Response) -> int | None:
             stacklevel=2,
         )
         return None
+
+DEFAULT_TIMEOUT = (5, 10)
+DEFAULT_CHUNK_SIZE = 256 * 1024
 
 def download(
     url: str,
@@ -249,9 +251,9 @@ def download(
         if callback is not None:
             callback('end', downloaded, total)
 
-        # 再次检查以避免不期待的文件覆盖
+        # 再次检查，避免意外覆盖文件
         if target.exists() and not overwrite:
-            # 删除后缀表示这是一个完整文件
+            # 移除临时后缀，表示文件已被完整下载
             os.replace(tmp_path, tmp_path.removesuffix('.tmp'))
             raise FileExistsError(f'File already exists: {target}')
         os.replace(tmp_path, target)
@@ -260,7 +262,19 @@ def download(
 
 
 ################################################################################
-### traverse: Concurrent traversal
+### default_get: default UrlGetter
+################################################################################
+
+type UrlGetter = Callable[[str], requests.Response]
+
+def default_get(url: str, timeout=DEFAULT_TIMEOUT) -> requests.Response:
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    return r
+
+
+################################################################################
+### traverse: concurrent traversal
 ################################################################################
 
 def traverse[Node: Hashable, Value](
