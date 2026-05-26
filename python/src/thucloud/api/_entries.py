@@ -68,7 +68,21 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
     root: str
     can_download: bool
 
-    dirents: MappingProxyType[str, File | Folder] = field(repr=False, compare=False)
+    dirents: MappingProxyType[str, File | Folder] = field(repr=False)
+    file_count: int = field(init=False)
+    folder_count: int = field(init=False)
+
+    def __post_init__(self):
+        file_count = 0
+        folder_count = 0
+        for f in self.dirents.values():
+            if isinstance(f, Folder):
+                file_count += f.file_count
+                folder_count += f.folder_count + 1
+            else:
+                file_count += 1
+        object.__setattr__(self, 'file_count', file_count)
+        object.__setattr__(self, 'folder_count', folder_count)
 
     def __iter__(self) -> Iterator[File | Folder]:
         return iter(self.dirents.values())
@@ -82,6 +96,12 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
                 yield from f.iter_files()
             else:
                 yield f
+
+    def iter_folders(self) -> Iterator[Folder]:
+        for f in self:
+            if isinstance(f, Folder):
+                yield f
+                yield from f.iter_folders()
 
     def __getitem__(self, key: str) -> File | Folder:
         return self.dirents[key]
