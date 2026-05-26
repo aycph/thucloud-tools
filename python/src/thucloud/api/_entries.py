@@ -1,6 +1,7 @@
-from collections.abc import Iterator
+from collections.abc import Hashable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
+from types import MappingProxyType
 from typing import dataclass_transform
 from urllib.parse import quote
 
@@ -23,7 +24,7 @@ def _entry_dataclass[T](cls: type[T]) -> type[T]:
     return dataclass(cls, eq=False, frozen=True, match_args=False, kw_only=True, slots=True)
 
 @_entry_dataclass
-class _Entry:
+class _Entry(Hashable):
     token: str
     path: str
 
@@ -63,14 +64,17 @@ class File(_Entry):
         return raw_path
 
 @_entry_dataclass
-class Folder(_Entry):
+class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
     root: str
     can_download: bool
 
-    dirents: tuple[File | Folder, ...] = field(repr=False, compare=False)
+    dirents: MappingProxyType[str, File | Folder] = field(repr=False, compare=False)
 
     def __iter__(self) -> Iterator[File | Folder]:
-        return iter(self.dirents)
+        return iter(self.dirents.values())
+
+    def __len__(self) -> int:
+        return len(self.dirents)
 
     def iter_files(self) -> Iterator[File]:
         for f in self:
@@ -78,3 +82,16 @@ class Folder(_Entry):
                 yield from f.iter_files()
             else:
                 yield f
+
+    def __getitem__(self, key: str) -> File | Folder:
+        return self.dirents[key]
+
+    def get[T = None](self, key: str, default: T = None) -> File | Folder | T:
+        return self.dirents.get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, str):
+            return key in self.dirents
+        if isinstance(key, (File, Folder)):
+            return self.dirents.get(key.name) == key
+        return False

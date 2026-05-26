@@ -2,6 +2,7 @@ import re
 from concurrent.futures import Executor
 from datetime import datetime
 from html import unescape
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -104,7 +105,7 @@ def _get_dirents(
     path: str,
     /, token: str, can_download: bool, root: str,
     *, get: UrlGetter, executor: Executor | None,
-) -> tuple[File | Folder, ...]:
+) -> MappingProxyType[str, File | Folder]:
     if executor is None:
         def get_dirent_list(path: str):
             return _fetch_dirent_list(path, token, get=get)
@@ -117,13 +118,16 @@ def _get_dirents(
         def get_dirent_list(path: str):
             return path2direntlist[path]
 
-    def get_dirents(path: str) -> tuple[File | Folder, ...]:
-        return tuple(parse_item(item) for item in get_dirent_list(path))
+    def get_dirents(path: str) -> MappingProxyType[str, File | Folder]:
+        return MappingProxyType({
+            (f := parse_item(item)).name: f
+            for item in get_dirent_list(path)
+        })
     def parse_item(item: dict[str, Any]) -> File | Folder:
         if item['is_dir']:
             path = item['folder_path']
             dirents = get_dirents(path)
-            size = sum(f.size for f in dirents)
+            size = sum(f.size for f in dirents.values())
             return Folder(
                 token=token,
                 path=path,
@@ -158,7 +162,7 @@ def _parse_folder(url: str, /, *, get: UrlGetter, executor: Executor | None) -> 
     path = info['relativePath']
     name = path.rstrip('/').rsplit('/', 1)[-1] or root
     dirents = _get_dirents(path, token, can_download, root, get=get, executor=executor)
-    size = sum(f.size for f in dirents)
+    size = sum(f.size for f in dirents.values())
     return Folder(
         token=token,
         path=path,
