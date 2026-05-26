@@ -10,10 +10,13 @@ __all__ = ['File', 'Folder']
 
 
 # root 只有 Folder 或 Folder 的子项可以获得
-# path 一定以 / 打头，并且不含 root
-# name 为短名，均不携带 '/'
-# 目录的根目录无 name ，设置为 '.'
-# 如果解析自文件链接，则 path == '/' + name
+# path 是相对于 root 的路径，一定以 / 打头，并且不含 root
+# 特殊文件无法获得 path ，如果也无法从 url 获得，则会被设置为 '/' + name
+# 这样 path 与单文件链接相符合
+# name 为短名
+# 目录的根目录无 name ，name 会被设置为 root
+# name、path、root 均不保证为合法路径或文件名，非法字符需手动处理
+
 
 @dataclass_transform(eq_default=False, kw_only_default=True, frozen_default=True)
 def _entry_dataclass[T](cls: type[T]) -> type[T]:
@@ -22,13 +25,13 @@ def _entry_dataclass[T](cls: type[T]) -> type[T]:
 @_entry_dataclass
 class _Entry:
     token: str
-    can_download: bool | None
-    root: str | None
+    path: str
 
     name: str
-    path: str
     size: int
     last_modified: datetime | None
+    root: str | None
+    can_download: bool | None
 
     def __eq__(self, other: object) -> bool:
         if self is other:
@@ -61,8 +64,8 @@ class File(_Entry):
 
 @_entry_dataclass
 class Folder(_Entry):
-    can_download: bool
     root: str
+    can_download: bool
 
     dirents: tuple[File | Folder, ...] = field(repr=False, compare=False)
 

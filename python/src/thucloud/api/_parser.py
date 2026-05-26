@@ -35,7 +35,7 @@ def _extract_page_options(html: str) -> dict[str, Any] | None:
     return parse_js_obj('\n'.join(lines))['pageOptions']
 
 
-def _parse_wopi_file(html: str, /, token: str, *, get: UrlGetter) -> File:
+def _parse_wopi_file(html: str, /, token: str, path: str | None, *, get: UrlGetter) -> File:
     m_action = re.search(r'<form id="office_form" name="office_form" target="office_frame" action="(.*?)" method="post">', html)
     if m_action is None:
         raise ValueError('Unexpected html: office_form not found')
@@ -53,14 +53,15 @@ def _parse_wopi_file(html: str, /, token: str, *, get: UrlGetter) -> File:
     info_url = f'{wopi}?access_token={access_token}'
     raw_path = f'{wopi}/contents?access_token={access_token}'
     info = get(info_url).json()
+
     file = File(
         token=token,
-        can_download=None,
-        root=None,
+        path=path if path is not None else '/' + info['BaseFileName'],
         name=info['BaseFileName'],
-        path='/' + info['BaseFileName'],
         size=info['Size'],
         last_modified=datetime.fromisoformat(info['LastModifiedTime']),
+        root=None,
+        can_download=None,
     )
     object.__setattr__(file, '_raw_path', raw_path)
     return file
@@ -69,19 +70,25 @@ def _parse_file(url: str, /, *, get: UrlGetter) -> File:
     html = get(url).text
     info = _extract_page_options(html)
     if info is None:
+        # 说明可能是 office 文件
         m_token = re.search(r'/([0-9a-f]{20})/', url)
         if m_token is None:
             raise ValueError(f'Unrecognized url: {url}')
         token = m_token.group(1)
-        return _parse_wopi_file(html, token, get=get)
+        # 尝试获取路径，如果来自于目录共享链接将提供 path
+        path = parse_qs(urlparse(url).query).get('p')
+        if path is not None:
+            path, = path
+            path = unquote(path)
+        return _parse_wopi_file(html, token, path, get=get)
     file = File(
         token=info['sharedToken'],
-        can_download=info['canDownload'],
-        root=None,
+        path=info['filePath'],
         name=info['fileName'],
-        path='/' + info['fileName'],
         size=info['fileSize'],
         last_modified=None,
+        root=None,
+        can_download=info['canDownload'],
     )
     object.__setattr__(file, '_raw_path', info['rawPath'])
     return file
@@ -117,23 +124,23 @@ def _get_dirents(
             size = sum(f.size for f in dirents)
             return Folder(
                 token=token,
-                can_download=can_download,
-                root=root,
-                name=item['folder_name'],
                 path=path,
+                name=item['folder_name'],
                 size=size,
                 last_modified=datetime.fromisoformat(item['last_modified']),
+                root=root,
+                can_download=can_download,
                 dirents=dirents,
             )
         else:
             return File(
                 token=token,
-                can_download=can_download,
-                root=root,
-                name=item['file_name'],
                 path=item['file_path'],
+                name=item['file_name'],
                 size=item['size'],
                 last_modified=datetime.fromisoformat(item['last_modified']),
+                root=root,
+                can_download=can_download,
             )
 
     return get_dirents(path)
@@ -146,18 +153,18 @@ def _parse_folder(url: str, /, *, get: UrlGetter, executor: Executor | None) -> 
     token = info['token']
     can_download = info['canDownload']
     root = info['dirName']
-    path = info['dirPath']
-    name = path.rstrip('/').rsplit('/', 1)[-1] or '.'
+    path = info['relativePath']
+    name = path.rstrip('/').rsplit('/', 1)[-1] or root
     dirents = _get_dirents(path, token, can_download, root, get=get, executor=executor)
     size = sum(f.size for f in dirents)
     return Folder(
         token=token,
-        can_download=can_download,
-        root=root,
-        name=name,
         path=path,
+        name=name,
         size=size,
         last_modified=None,
+        root=root,
+        can_download=can_download,
         dirents=dirents,
     )
 
