@@ -1,6 +1,7 @@
 import re
 from concurrent.futures import Executor
 from datetime import datetime
+from html import unescape
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
@@ -40,10 +41,11 @@ def _parse_wopi_file(html: str, /, token: str, path: str | None, *, get: UrlGett
     if m_action is None:
         raise ValueError('Unexpected html: office_form not found')
     action = m_action.group(1)
-    wopis = parse_qs(urlparse(unquote(action).replace('&amp;', '&')).query).get('WOPISrc')
+    wopis = parse_qs(urlparse(unescape(action)).query).get('WOPISrc')
     if wopis is None:
         raise ValueError('Unexpected html: WOPISrc not found')
     wopi, = wopis
+    wopi = unquote(wopi)
 
     m_token = re.search(r'<input name="access_token" value="([0-9a-f]{32})" type="hidden"/>', html)
     if m_token is None:
