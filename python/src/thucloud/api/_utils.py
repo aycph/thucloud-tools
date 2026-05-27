@@ -17,11 +17,12 @@ __all__ = [
     'UrlGetter',
     'default_get',
     'traverse',
+    'sanitize_filename',
 ]
 
 
 ################################################################################
-### CachedProperty: cached descriptors
+### CachedProperty: cached descriptor
 ################################################################################
 class CachedProperty[O, T]:
     __slots__ = 'fget', '__doc__', 'attrname', 'slotname', 'readonly'
@@ -143,7 +144,7 @@ class CachedProperty[O, T]:
 
 
 ################################################################################
-### parse_js_obj: JavaScript-like object parsing
+### parse_js_obj: JavaScript-like literal object parsing
 ################################################################################
 
 class _JSLocals(Mapping[str, Any]):
@@ -168,7 +169,7 @@ def parse_js_obj(s: str) -> Any:
 
 
 ################################################################################
-### download: download utilities
+### download: streaming download utilities
 ################################################################################
 
 class ProgressCallback(Protocol):
@@ -210,12 +211,13 @@ DEFAULT_CHUNK_SIZE = 256 * 1024
 def download(
     url: str,
     path: str | os.PathLike[str],
+    /,
     *,
     headers: Mapping[str, str] | None = None,
     session: requests.Session | None = None,
     timeout: float | tuple[float, float] | None = DEFAULT_TIMEOUT,
-    overwrite: bool = True,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overwrite: bool = True,
     callback: ProgressCallback | None = None,
 ) -> Path:
     if chunk_size <= 0:
@@ -248,8 +250,6 @@ def download(
                 downloaded += len(chunk)
                 if callback is not None:
                     callback('progress', downloaded, total)
-        if callback is not None:
-            callback('end', downloaded, total)
 
         # 再次检查，避免意外覆盖文件
         if target.exists() and not overwrite:
@@ -257,6 +257,10 @@ def download(
             os.replace(tmp_path, tmp_path.removesuffix('.tmp'))
             raise FileExistsError(f'File already exists: {target}')
         os.replace(tmp_path, target)
+
+        # 汇报完成
+        if callback is not None:
+            callback('end', downloaded, total)
 
     return target
 
@@ -267,14 +271,14 @@ def download(
 
 type UrlGetter = Callable[[str], requests.Response]
 
-def default_get(url: str, timeout=DEFAULT_TIMEOUT) -> requests.Response:
+def default_get(url: str, /, timeout=DEFAULT_TIMEOUT) -> requests.Response:
     r = requests.get(url, timeout=timeout)
     r.raise_for_status()
     return r
 
 
 ################################################################################
-### traverse: concurrent traversal
+### traverse: concurrent graph traversal
 ################################################################################
 
 def traverse[Node: Hashable, Value](
@@ -307,3 +311,34 @@ def traverse[Node: Hashable, Value](
             fut.cancel()
         raise
     return node2value
+
+
+################################################################################
+### sanitize_filename: filename sanitization
+################################################################################
+
+# Copied from `Lib/ntpath.py`
+_reserved_chars = frozenset(
+    {chr(i) for i in range(32)} |
+    {'"', '*', ':', '<', '>', '?', '|', '/', '\\'}
+)
+_reserved_names = frozenset(
+    {'CON', 'PRN', 'AUX', 'NUL', 'CONIN$', 'CONOUT$'} |
+    {f'COM{c}' for c in '123456789\xb9\xb2\xb3'} |
+    {f'LPT{c}' for c in '123456789\xb9\xb2\xb3'}
+)
+
+_reserved_char_table = {ord(c): '_' for c in _reserved_chars}
+
+def sanitize_filename(name: str) -> str:
+    name0 = name
+    if not isinstance(name, str):
+        raise TypeError(f'name must be str, not {type(name)!r}')
+    if '/' in name or '\\' in name:
+        raise ValueError(f'name cannot contain slash or backslash: {name0!r}')
+    name = name.rstrip(' .')
+    if name in {'', '.', '..'}:
+        raise ValueError(f'unsanitized filename: {name0!r}')
+    if name.partition('.')[0].rstrip(' ').upper() in _reserved_names:
+        name = '_' + name
+    return name.translate(_reserved_char_table)
