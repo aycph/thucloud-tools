@@ -20,6 +20,7 @@ from ._utils import (
 
 __all__ = [
     'DownloadSummary',
+    'ProgressEvent',
     'ProgressCallback',
     'download',
 ]
@@ -38,12 +39,14 @@ class DownloadSummary(NamedTuple):
 
     elapsed: timedelta
 
+type ProgressEvent = Literal['start', 'progress', 'end', 'skip']
+
 class ProgressCallback(Protocol):
     def __call__(
         self,
         file: File,
         target: Path,
-        event: Literal['start', 'progress', 'end', 'skip'],
+        event: ProgressEvent,
         downloaded: int,
         /,
     ) -> None: ...
