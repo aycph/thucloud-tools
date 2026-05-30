@@ -44,6 +44,7 @@ type ProgressEvent = Literal['start', 'progress', 'end', 'skip']
 class ProgressCallback(Protocol):
     def __call__(
         self,
+        root_entry: File | Folder,
         file: File,
         target: Path,
         event: ProgressEvent,
@@ -56,7 +57,7 @@ def download(
     output_dir: str | os.PathLike[str],
     /,
     *,
-    workers: int | None = None,
+    workers: int = 4,
     if_exists: Literal['error', 'overwrite', 'skip'] = 'skip',
     filename_sanitizer: Callable[[str], str] = sanitize_filename,
     timeout: float | tuple[float, float] | None = DEFAULT_TIMEOUT,
@@ -115,7 +116,7 @@ def download(
                     with lock:
                         files_skipped += 1
                     if callback is not None:
-                        callback(file, target, 'skip', 0)
+                        callback(entry, file, target, 'skip', 0)
                     return target
             session = sessions.get(threading.current_thread(), None)
             url = file.raw_path
@@ -131,7 +132,7 @@ def download(
                         if existed:
                             files_overwritten += 1
                 if callback is not None:
-                    callback(file, target, event, downloaded)
+                    callback(entry, file, target, event, downloaded)
             return download_url(
                 url,
                 target,

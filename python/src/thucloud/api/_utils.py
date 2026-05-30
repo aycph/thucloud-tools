@@ -5,7 +5,7 @@ import warnings
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from concurrent.futures import FIRST_COMPLETED, Executor, Future, wait
 from pathlib import Path
-from typing import Any, Literal, Protocol, Self, overload
+from typing import Any, Literal, Protocol, Self, cast, overload
 
 import requests
 
@@ -244,8 +244,6 @@ def download(
         )
         with os.fdopen(fd, 'wb') as file:
             for chunk in response.iter_content(chunk_size):
-                if not chunk:
-                    continue
                 file.write(chunk)
                 downloaded += len(chunk)
                 if callback is not None:
@@ -342,3 +340,44 @@ def sanitize_filename(name: str) -> str:
     if name.partition('.')[0].rstrip(' ').upper() in _reserved_names:
         name = '_' + name
     return name.translate(_reserved_char_table)
+
+
+################################################################################
+### Via: attribute routing
+################################################################################
+class Via[O, T]:
+    __slots__ = '_fget'
+    def __init__(self, fget: Callable[[O], T]):
+        self._fget = fget
+    def __getattr__(self, name: str) -> Via.RoutedAttribute[Any, O, T]:
+        if name.startswith('__') and name.endswith('__'):
+            raise AttributeError(name)
+        return self.RoutedAttribute(self._fget, name)
+    @overload
+    def __get__(self, obj: None, objtype: type[O] | None = None) -> Self: ...
+    @overload
+    def __get__(self, obj: O, objtype: type[O] | None = None) -> T: ...
+    def __get__(self, obj, objtype=None):
+        if obj is None:
+            return self
+        return self._fget(obj)
+
+    class RoutedAttribute[V_, O_, T_]:
+        __slots__ = '_fget', '_attrname'
+        def __init__(self, fget: Callable[[O_], T_], attrname: str):
+            self._fget = fget
+            self._attrname = attrname
+        @overload
+        def __get__(self, obj: None, objtype: type[O_] | None = None) -> Self: ...
+        @overload
+        def __get__(self, obj: O_, objtype: type[O_] | None = None) -> V_: ...
+        def __get__(self, obj, objtype=None):
+            if obj is None:
+                return self
+            return getattr(self._fget(obj), self._attrname)
+        def __set__(self, obj: O_, value: V_) -> None:
+            setattr(self._fget(obj), self._attrname, value)
+        def __delete__(self, obj: O_) -> None:
+            delattr(self._fget(obj), self._attrname)
+        def __getitem__[V](self, _: type[V]) -> Via.RoutedAttribute[V, O_, T_]:
+            return cast(Via.RoutedAttribute[V, O_, T_], self)
