@@ -2,13 +2,10 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import (
-    ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor,
-    wait,
-)
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, NamedTuple, Protocol, cast
+from typing import Literal, NamedTuple, Protocol
 
 import requests
 
@@ -51,6 +48,7 @@ class ProgressCallback(Protocol):
         downloaded: int,
         /,
     ) -> None: ...
+    # write: Callable[[str], None]
 
 def download(
     entry: File | Folder,
@@ -72,7 +70,10 @@ def download(
 
     `callback` 在下载文件夹时可能会从多个工作线程被并发调用，线程安全性需调用方自行保证
 
-    下载文件夹时一旦有下载任务失败，会尝试取消尚未完成的任务，并将收集到的任务异常以异常组的形式抛出
+    下载文件夹时，若某个下载任务失败或下载过程被中断，会尝试取消尚未开始运行的任务，
+    并通过 callback.write 输出提示信息（如果 callback 提供了该方法）。
+    随后会等待已经开始运行的任务结束；在等待期间再次收到 KeyboardInterrupt 等异常时，
+    会停止等待并继续向外抛出该异常。
     """
     sessions: dict[threading.Thread, requests.Session] = {}
 
@@ -172,24 +173,19 @@ def download(
 
         try:
             target = dl_folder(entry, output_dir)
-
-            _, not_done = wait(futures, return_when=FIRST_EXCEPTION)
-            for future in not_done:
-                future.cancel()
-            wait(not_done, return_when=ALL_COMPLETED)
-            exceptions = [
-                exc
-                for future in futures
-                if (not future.cancelled() and
-                    (exc := future.exception()) is not None)
-            ]
-            if exceptions:
-                if all(isinstance(exc, Exception) for exc in exceptions):
-                    exceptions = cast(list[Exception], exceptions)
-                    raise ExceptionGroup('Some tasks failed', exceptions)
-                raise BaseExceptionGroup('Some tasks failed', exceptions)
-        except BaseException:
+            for future in as_completed(futures):
+                future.result()
+        except BaseException as exc:
             executor.shutdown(wait=False, cancel_futures=True)
+            if (write := getattr(callback, 'write', None)) is not None:
+                try:
+                    write(
+                        f'Download interrupted by {exc!r}.\n'
+                        'Pending downloads have been cancelled.\n'
+                        'Waiting for running downloads to finish; press Ctrl-C again to stop waiting.\n'
+                    )
+                except Exception as write_exc:
+                    exc.add_note(f'Failed to write interruption message: {write_exc!r}')
             raise
         finally:
             executor.shutdown()

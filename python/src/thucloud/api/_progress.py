@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import unicodedata
 from pathlib import Path
@@ -39,6 +40,9 @@ class TqdmProgressCallback(ProgressCallback):
         'smoothing': 1,
     }
     DESC_WIDTH: ClassVar[int] = 40
+
+    def write(self, msg: str):
+        tqdm.write(msg, file=self._tqdm_kw.get('file', sys.stderr))
 
     @classmethod
     def pad_desc(cls, path: Path) -> str:
