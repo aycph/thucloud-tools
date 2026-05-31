@@ -1,4 +1,6 @@
+import os
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -11,6 +13,20 @@ from ._utils import Via
 __all__ = ['TqdmProgressCallback']
 
 
+def _char_width(ch: str) -> int:
+    if len(ch) != 1:
+        raise TypeError(f'expected a character, but string of length {len(ch)} found')
+    # 组合字符，比如重音符号
+    if unicodedata.combining(ch):
+        return 0
+    # 控制字符
+    if unicodedata.category(ch).startswith("C"):
+        return 0
+    # CJK/全角字符
+    if unicodedata.east_asian_width(ch) in {'F', 'W'}:
+        return 2
+    return 1
+
 class TqdmProgressCallback(ProgressCallback):
     TQDM_KW: ClassVar[dict[str, Any]] = {
         'leave': None,
@@ -22,6 +38,41 @@ class TqdmProgressCallback(ProgressCallback):
         'dynamic_ncols': True,
         'smoothing': 1,
     }
+    DESC_WIDTH: ClassVar[int] = 40
+
+    @classmethod
+    def pad_desc(cls, path: Path) -> str:
+        # 若长度已够短，直接填充空格
+        path_str = str(path)
+        path_str_width = [_char_width(ch) for ch in path_str]
+        path_width = sum(path_str_width)
+        if (path_width <= cls.DESC_WIDTH):
+            return path_str + ' '*(cls.DESC_WIDTH - path_width)
+
+        # 若文件名够短，返回 '{prefix}.../{name}'
+        name_str = path.name
+        name_str_width = [_char_width(ch) for ch in name_str]
+        name_width = sum(name_str_width)
+        if (name_width <= cls.DESC_WIDTH - 4):
+            remaining = cls.DESC_WIDTH - name_width - 4
+            index = 0
+            while remaining >= (w := path_str_width[index]):
+                remaining -= w
+                index += 1
+            return f'{path_str[:index]}...{os.sep}{name_str}' + ' '*remaining
+
+        # 若文件名也不够短，返回 '.../{nameprefix}...{namepostfix}'
+        remaining = cls.DESC_WIDTH - 7
+        index = 0
+        while remaining >= (w := (name_str_width[index] + name_str_width[-(index+1)])):
+            remaining -= w
+            index += 1
+        if remaining >= (w := name_str_width[-(index+1)]):
+            remaining -= w
+            rindex = -(index+1)
+        else:
+            rindex = -index
+        return f'...{os.sep}{name_str[:index]}...{name_str[rindex:]}' + ' '*remaining
 
     def __init__(self, tqdm_kw: dict[str, Any] | None = None):
         self._tqdm_kw = self.TQDM_KW | (tqdm_kw or {})
@@ -133,7 +184,12 @@ class TqdmProgressCallback(ProgressCallback):
             with self._lock:
                 pos = self._next_position
                 self._next_position = pos + 1
-            bar = tqdm(position=pos, desc=str(target), total=file.size, **self._tqdm_kw)
+            bar = tqdm(
+                position=pos,
+                desc=self.pad_desc(target),
+                total=file.size,
+                **self._tqdm_kw
+            )
             self._thread_bar = bar
             self._bars.append(bar)
 
@@ -141,7 +197,7 @@ class TqdmProgressCallback(ProgressCallback):
             case 'start':
                 self._thread_file = file
                 bar.reset(file.size)
-                bar.set_description(str(target))
+                bar.set_description(self.pad_desc(target))
             case 'progress':
                 if file != self._thread_file:
                     raise RuntimeError(
