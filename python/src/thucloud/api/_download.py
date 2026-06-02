@@ -2,7 +2,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, as_completed
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
@@ -11,7 +11,7 @@ import requests
 
 from ._entries import File, Folder
 from ._utils import (
-    DEFAULT_CHUNK_SIZE, DEFAULT_TIMEOUT,
+    DEFAULT_CHUNK_SIZE, DEFAULT_TIMEOUT, SessionThreadPoolExecutor,
     download as download_url, sanitize_filename,
 )
 
@@ -75,9 +75,9 @@ def download(
     随后会等待已经开始运行的任务结束；在等待期间再次收到 KeyboardInterrupt 等异常时，
     会停止等待并继续向外抛出该异常。
     """
-    sessions: dict[threading.Thread, requests.Session] = {}
 
     lock = threading.Lock()
+    executor = None
 
     files_total = 1 if isinstance(entry, File) else entry.file_count
     bytes_total = entry.size
@@ -103,6 +103,8 @@ def download(
     def dl(file: File, output_dir: str | os.PathLike[str]) -> Path:
         nonlocal files_skipped
 
+        session = None if executor is None else executor.thread_session
+
         target = None
         try:
             target = Path(output_dir, filename_sanitizer(file.name))
@@ -119,7 +121,6 @@ def download(
                     if callback is not None:
                         callback(entry, file, target, 'skip', 0)
                     return target
-            session = sessions.get(threading.current_thread(), None)
             url = file.raw_path
             if url is None:
                 url = file.get_raw_path(get=requests.get if session is None else session.get)
@@ -155,9 +156,7 @@ def download(
         os.makedirs(output_dir, exist_ok=True)
         target = dl(entry, output_dir)
     else:
-        def initializer():
-            sessions[threading.current_thread()] = requests.Session()
-        executor = ThreadPoolExecutor(max_workers=workers, initializer=initializer)
+        executor = SessionThreadPoolExecutor(max_workers=workers)
         futures: set[Future[Path]] = set()
 
         def dl_folder(folder: Folder, output_dir: str | os.PathLike[str]) -> Path:
@@ -189,9 +188,6 @@ def download(
             raise
         finally:
             executor.shutdown()
-            for session in sessions.values():
-                session.close()
-            sessions.clear()
 
     elapsed_seconds = time.perf_counter() - t0
     return DownloadSummary(

@@ -1,11 +1,14 @@
 import functools
 import os
 import tempfile
+import threading
 import warnings
 from collections.abc import Callable, Hashable, Iterable, Mapping
-from concurrent.futures import FIRST_COMPLETED, Executor, Future, wait
+from concurrent.futures import (
+    FIRST_COMPLETED, Executor, Future, ThreadPoolExecutor, wait
+)
 from pathlib import Path
-from typing import Any, Literal, Protocol, Self, cast, overload
+from typing import Any, Literal, Protocol, Self, cast, overload, override
 
 import requests
 
@@ -16,6 +19,7 @@ __all__ = [
     'download',
     'UrlGetter',
     'default_get',
+    'SessionThreadPoolExecutor',
     'traverse',
     'sanitize_filename',
 ]
@@ -274,6 +278,61 @@ def default_get(url: str, /, timeout=DEFAULT_TIMEOUT) -> requests.Response:
     r.raise_for_status()
     return r
 
+
+################################################################################
+### SessionThreadPoolExecutor: ThreadPoolExecutor with thread-local sessions
+################################################################################
+
+class SessionThreadPoolExecutor(ThreadPoolExecutor):
+    __slots__ = '_local', '_sessions'
+
+    @overload
+    def __init__(
+        self,
+        max_workers: int | None = None,
+        thread_name_prefix: str = '',
+        initializer: None = None,
+        initargs: tuple[()] = (),
+    ) -> None:
+        ...
+    @overload
+    def __init__[*Ts](
+        self,
+        max_workers: int | None,
+        thread_name_prefix: str,
+        initializer: Callable[[*Ts], None],
+        initargs: tuple[*Ts],
+    ) -> None:
+        ...
+    @override
+    def __init__(self, max_workers=None, thread_name_prefix='',
+                 initializer=None, initargs=()):
+        super().__init__(max_workers, thread_name_prefix, initializer, initargs)
+        self._local = threading.local()
+        self._sessions = []
+
+    @override
+    def shutdown(self, wait: bool = True, *, cancel_futures: bool = False):
+        super().shutdown(wait, cancel_futures=cancel_futures)
+        if wait:
+            for session in self._sessions:
+                session.close()
+            self._sessions.clear()
+
+    @property
+    def thread_session(self) -> requests.Session:
+        if self._shutdown:
+            raise RuntimeError('cannot use thread_session after shutdown')
+        try:
+            return self._local.session
+        except AttributeError:
+            session = requests.Session()
+            self._local.session = session
+            self._sessions.append(session)
+            return session
+
+    def thread_session_get(self, url: str) -> requests.Response:
+        return self.thread_session.get(url)
 
 ################################################################################
 ### traverse: concurrent graph traversal
