@@ -1,14 +1,16 @@
 import os
 import sys
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, ClassVar
 
 from tqdm import tqdm
 
+from . import _parser
 from ._download import ProgressCallback, ProgressEvent
 from ._entries import File, Folder
-from .utils import Via, char_width
+from .utils import UrlGetter, Via, char_width
 
 __all__ = ['TqdmProgressCallback']
 
@@ -74,6 +76,7 @@ class TqdmProgressCallback(ProgressCallback):
 
         self._root = None
         self._files_done = 0
+        self._files_cnt = 0
 
         self._closed = False
 
@@ -112,6 +115,14 @@ class TqdmProgressCallback(ProgressCallback):
             with self._lock:
                 if self._root is None:
                     self._root = root_entry
+                    self._files_cnt = 1 if isinstance(root_entry, File) else root_entry.file_count
+                    if (total_bar := self._total_bar) is not None:
+                        # 若之前进度条已经被 parse 使用则显式刷新
+                        # 虽然 postfix 和 total 理应已正确，但是 desc 仍需刷新
+                        self._update_postfix(refresh=False)
+                        total_bar.set_description(root_entry.name, refresh=False)
+                        total_bar.reset(root_entry.size) # refresh
+
         if root_entry != self._root:
             raise ValueError(
                 '`root_entry` is inconsistent: '
@@ -127,8 +138,8 @@ class TqdmProgressCallback(ProgressCallback):
                         desc=root_entry.name,
                         **self._tqdm_kw
                     )
-                    self._update_desc(total_bar, 0, self._get_file_cnt(root_entry))
                     self._total_bar = total_bar
+                    self._update_postfix()
         total_bar = self._total_bar
 
         if isinstance(self._root, File):
@@ -151,21 +162,20 @@ class TqdmProgressCallback(ProgressCallback):
                         )
                     delta = downloaded - total_bar.n
                     total_bar.update(delta)
-                    total_bar.refresh()
                     self._files_done += 1
-                    self._update_desc(total_bar, self._files_done, self._get_file_cnt(root_entry))
+                    self._update_postfix() # refresh total_bar
                 case 'skip':
                     total_bar.update(file.size)
                     with self._lock:
                         self._files_done += 1
-                        self._update_desc(total_bar, self._files_done, self._get_file_cnt(root_entry))
+                        self._update_postfix() # refresh total_bar
             return
 
         if event == 'skip': # 提前返回，避免 skip 时创建 bar
             total_bar.update(file.size)
             with self._lock:
                 self._files_done += 1
-                self._update_desc(total_bar, self._files_done, self._get_file_cnt(root_entry))
+                self._update_postfix() # refresh total_bar
             return
 
         try:
@@ -212,16 +222,46 @@ class TqdmProgressCallback(ProgressCallback):
                 bar.update(delta)
                 bar.refresh()
                 total_bar.update(delta)
-                total_bar.refresh()
                 with self._lock:
                     self._files_done += 1
-                    self._update_desc(total_bar, self._files_done, self._get_file_cnt(root_entry))
+                    self._update_postfix() # refresh total_bar
                 del self._thread_file
 
-    @staticmethod
-    def _get_file_cnt(entry: File | Folder):
-        return 1 if isinstance(entry, File) else entry.file_count
+    def _update_postfix(self, refresh: bool = True):
+        total_bar = self._total_bar
+        if total_bar is None:
+            raise RuntimeError('_update_postfix called before _total_bar created')
+        total_bar.set_postfix_str(f'files:{self._files_done}/{self._files_cnt}', refresh=refresh)
 
-    @staticmethod
-    def _update_desc(total_bar: tqdm, files_done: int, files_cnt: int):
-        total_bar.set_postfix_str(f'files: {files_done}/{files_cnt}')
+    @contextmanager
+    def hack_parse(self):
+        # 使用局部变量 _fetch_dirent_list 来确保恢复时
+        # 不受可能的 self._origin_fetch_dirent_list 被修改影响
+        self._origin_fetch_dirent_list = _fetch_dirent_list = _parser._fetch_dirent_list
+        _parser._fetch_dirent_list = self._fetch_dirent_list
+        try:
+            yield
+        finally:
+            _parser._fetch_dirent_list = _fetch_dirent_list
+
+    def _fetch_dirent_list(self, path: str, /, token: str, *, get: UrlGetter) -> list[dict[str, Any]]:
+        data = self._origin_fetch_dirent_list(path, token, get=get)
+        if self._total_bar is None:
+            with self._lock:
+                if self._total_bar is None:
+                    total_bar = tqdm(
+                        position=0,
+                        total=0,
+                        desc='Parsing...',
+                        **self._tqdm_kw
+                    )
+                    self._total_bar = total_bar
+                    self._update_postfix()
+        total_bar = self._total_bar
+        files = [item for item in data if not item['is_dir']]
+        size = sum(file['size'] for file in files)
+        with self._lock:
+            self._files_cnt += len(files)
+            self._update_postfix(refresh=False)
+            total_bar.reset(total_bar.total + size) # refresh
+        return data
