@@ -127,6 +127,7 @@ class TqdmProgressCallback(ProgressCallback):
                         desc=root_entry.name,
                         **self._tqdm_kw
                     )
+                    self._update_desc(total_bar, 0, self._get_file_cnt(root_entry))
                     self._total_bar = total_bar
         total_bar = self._total_bar
 
