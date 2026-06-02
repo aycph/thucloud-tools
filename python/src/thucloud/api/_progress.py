@@ -1,7 +1,6 @@
 import os
 import sys
 import threading
-import unicodedata
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -9,24 +8,10 @@ from tqdm import tqdm
 
 from ._download import ProgressCallback, ProgressEvent
 from ._entries import File, Folder
-from ._utils import Via
+from .utils import Via, char_width
 
 __all__ = ['TqdmProgressCallback']
 
-
-def _char_width(ch: str) -> int:
-    if len(ch) != 1:
-        raise TypeError(f'expected a character, but string of length {len(ch)} found')
-    # 组合字符，比如重音符号
-    if unicodedata.combining(ch):
-        return 0
-    # 控制字符
-    if unicodedata.category(ch).startswith("C"):
-        return 0
-    # CJK/全角字符
-    if unicodedata.east_asian_width(ch) in {'F', 'W'}:
-        return 2
-    return 1
 
 class TqdmProgressCallback(ProgressCallback):
     TQDM_KW: ClassVar[dict[str, Any]] = {
@@ -48,14 +33,14 @@ class TqdmProgressCallback(ProgressCallback):
     def pad_desc(cls, path: Path) -> str:
         # 若长度已够短，直接填充空格
         path_str = str(path)
-        path_str_width = [_char_width(ch) for ch in path_str]
+        path_str_width = [char_width(ch) for ch in path_str]
         path_width = sum(path_str_width)
         if (path_width <= cls.DESC_WIDTH):
             return path_str + ' '*(cls.DESC_WIDTH - path_width)
 
         # 若文件名够短，返回 '{prefix}.../{name}'
         name_str = path.name
-        name_str_width = [_char_width(ch) for ch in name_str]
+        name_str_width = [char_width(ch) for ch in name_str]
         name_width = sum(name_str_width)
         if (name_width <= cls.DESC_WIDTH - 4):
             remaining = cls.DESC_WIDTH - name_width - 4

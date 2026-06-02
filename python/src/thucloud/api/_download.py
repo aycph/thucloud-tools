@@ -10,7 +10,7 @@ from typing import Literal, NamedTuple, Protocol
 import requests
 
 from ._entries import File, Folder
-from ._utils import (
+from .utils import (
     DEFAULT_CHUNK_SIZE, DEFAULT_TIMEOUT, SessionThreadPoolExecutor,
     download as download_url, sanitize_filename,
 )

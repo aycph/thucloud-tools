@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from ._entries import File, Folder
-from ._utils import UrlGetter, default_get, parse_js_obj, traverse
+from .utils import UrlGetter, default_get, parse_js_obj, traverse
 
 __all__ = [
     'UrlGetter',

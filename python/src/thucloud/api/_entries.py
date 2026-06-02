@@ -5,7 +5,7 @@ from types import MappingProxyType
 from typing import dataclass_transform
 from urllib.parse import quote
 
-from ._utils import CachedProperty, UrlGetter
+from .utils import CachedProperty, UrlGetter
 
 __all__ = ['File', 'Folder']
 

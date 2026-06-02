@@ -2,6 +2,7 @@ import functools
 import os
 import tempfile
 import threading
+import unicodedata
 import warnings
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from concurrent.futures import (
@@ -22,12 +23,15 @@ __all__ = [
     'SessionThreadPoolExecutor',
     'traverse',
     'sanitize_filename',
+    'Via',
+    'char_width',
 ]
 
 
 ################################################################################
 ### CachedProperty: cached descriptor
 ################################################################################
+
 class CachedProperty[O, T]:
     __slots__ = 'fget', '__doc__', 'attrname', 'slotname', 'readonly'
 
@@ -404,6 +408,7 @@ def sanitize_filename(name: str) -> str:
 ################################################################################
 ### Via: attribute routing
 ################################################################################
+
 class Via[O, T]:
     __slots__ = '_fget'
     def __init__(self, fget: Callable[[O], T]):
@@ -440,3 +445,22 @@ class Via[O, T]:
             delattr(self._fget(obj), self._attrname)
         def __getitem__[V](self, _: type[V]) -> Via.RoutedAttribute[V, O_, T_]:
             return cast(Via.RoutedAttribute[V, O_, T_], self)
+
+
+################################################################################
+### char_width: character display width
+################################################################################
+
+def char_width(ch: str) -> int:
+    if len(ch) != 1:
+        raise TypeError(f'expected a character, but string of length {len(ch)} found')
+    # 组合字符，比如重音符号
+    if unicodedata.combining(ch):
+        return 0
+    # 控制字符
+    if unicodedata.category(ch).startswith("C"):
+        return 0
+    # CJK/全角字符
+    if unicodedata.east_asian_width(ch) in {'F', 'W'}:
+        return 2
+    return 1
