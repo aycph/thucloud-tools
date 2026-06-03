@@ -64,8 +64,8 @@ class ProgressCallback(Protocol):
 
 def download(
     entry: File | Folder,
-    output_dir: str | os.PathLike[str],
     /,
+    output_dir: str | os.PathLike[str] = '.',
     *,
     workers: int = 4,
     if_exists: Literal['error', 'overwrite', 'skip'] = 'skip',
@@ -91,6 +91,8 @@ def download(
     同一 output_dir 不应被多个 download() 调用并发写入；
     如需这样做，调用方应自行按 output_dir 或 target path 加锁。
     """
+    if type(workers) is not int or workers <= 0:
+        raise ValueError(f'invalid workers: {workers!r}')
     if if_exists not in {'error', 'overwrite', 'skip'}:
         raise ValueError(f'invalid if_exists: {if_exists!r}')
     if mtime not in {'off', 'reported', 'derived'}:
