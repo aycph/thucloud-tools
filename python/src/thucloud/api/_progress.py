@@ -174,6 +174,8 @@ class TqdmProgressCallback(ProgressCallback):
                     with self._lock:
                         self._files_done += 1
                         self._update_postfix() # refresh total_bar
+                case _:
+                    raise ValueError(f'unknown event: {event!r}')
             return
 
         if event == 'skip': # 提前返回，避免 skip 时创建 bar
@@ -231,6 +233,10 @@ class TqdmProgressCallback(ProgressCallback):
                     self._files_done += 1
                     self._update_postfix() # refresh total_bar
                 del self._thread_file
+            case 'skip':
+                pass # 已提前处理
+            case _:
+                raise ValueError(f'unknown event: {event!r}')
 
     def _update_postfix(self, refresh: bool = True):
         total_bar = self._total_bar
