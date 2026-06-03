@@ -74,6 +74,9 @@ def download(
     并通过 callback.write 输出提示信息（如果 callback 提供了该方法）。
     随后会等待已经开始运行的任务结束；在等待期间再次收到 KeyboardInterrupt 等异常时，
     会停止等待并继续向外抛出该异常。
+
+    同一 output_dir 不应被多个 download() 调用并发写入；
+    如需这样做，调用方应自行按 output_dir 或 target path 加锁。
     """
 
     lock = threading.Lock()

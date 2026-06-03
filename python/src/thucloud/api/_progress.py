@@ -179,8 +179,8 @@ class TqdmProgressCallback(ProgressCallback):
             return
 
         if event == 'skip': # 提前返回，避免 skip 时创建 bar
-            total_bar.update(file.size)
             with self._lock:
+                total_bar.update(file.size)
                 self._files_done += 1
                 self._update_postfix() # refresh total_bar
             return
@@ -213,7 +213,8 @@ class TqdmProgressCallback(ProgressCallback):
                     )
                 delta = downloaded - bar.n
                 bar.update(delta)
-                total_bar.update(delta)
+                with self._lock:
+                    total_bar.update(delta)
             case 'end':
                 if file != self._thread_file:
                     raise RuntimeError(
@@ -228,8 +229,8 @@ class TqdmProgressCallback(ProgressCallback):
                 delta = downloaded - bar.n
                 bar.update(delta)
                 bar.refresh()
-                total_bar.update(delta)
                 with self._lock:
+                    total_bar.update(delta)
                     self._files_done += 1
                     self._update_postfix() # refresh total_bar
                 del self._thread_file
@@ -248,12 +249,18 @@ class TqdmProgressCallback(ProgressCallback):
     def hack_parse(self):
         # 使用局部变量 _fetch_dirent_list 来确保恢复时
         # 不受可能的 self._origin_fetch_dirent_list 被修改影响
+        if hasattr(self, '_origin_fetch_dirent_list'):
+            raise RuntimeError(
+                'TqdmProgressCallback.hack_parse() is not reentrant; '
+                'do not enter it more than once with the same callback instance'
+            )
         self._origin_fetch_dirent_list = _fetch_dirent_list = _parser._fetch_dirent_list
         _parser._fetch_dirent_list = self._fetch_dirent_list
         try:
             yield
         finally:
             _parser._fetch_dirent_list = _fetch_dirent_list
+            del self._origin_fetch_dirent_list
 
     def _fetch_dirent_list(self, path: str, /, token: str, *, get: UrlGetter) -> list[dict[str, Any]]:
         data = self._origin_fetch_dirent_list(path, token, get=get)

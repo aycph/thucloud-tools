@@ -370,6 +370,7 @@ def traverse[Node: Hashable, Value](
         # 以捕获 KeyboardInterrupt/SystemExit
         for fut in pending2node:
             fut.cancel()
+        wait(pending2node)
         raise
     return node2value
 
