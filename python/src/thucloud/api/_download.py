@@ -1,3 +1,4 @@
+import functools
 import os
 import threading
 import time
@@ -69,6 +70,7 @@ def download(
     workers: int = 4,
     if_exists: Literal['error', 'overwrite', 'skip'] = 'skip',
     filename_sanitizer: Callable[[str], str] = sanitize_filename,
+    mtime: Literal['off', 'reported', 'derived'] = 'derived',
     timeout: float | tuple[float, float] | None = DEFAULT_TIMEOUT,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     callback: ProgressCallback | None = None,
@@ -91,6 +93,8 @@ def download(
     """
     if if_exists not in {'error', 'overwrite', 'skip'}:
         raise ValueError(f'invalid if_exists: {if_exists!r}')
+    if mtime not in {'off', 'reported', 'derived'}:
+        raise ValueError(f'invalid mtime: {mtime!r}')
 
     lock = threading.Lock()
     executor = None
@@ -224,6 +228,31 @@ def download(
             raise
         finally:
             executor.shutdown()
+
+    if mtime != 'off':
+        if write is not None:
+            write('Restoring modification times...')
+        @functools.cache
+        def get_mtime_ns(entry: File | Folder) -> int | None:
+            mdatetime = entry.last_modified
+            if mdatetime is not None:
+                # 先转 int ，一是因为时间精度本来就只到秒，
+                # 二来担心浮点数乘完后反而可能丢失精度
+                return int(mdatetime.timestamp()) * 1_000_000_000
+            if mtime == 'derived' and isinstance(entry, Folder):
+                return max(
+                    (
+                        mtime_ns
+                        for subentry in entry
+                        if (mtime_ns := get_mtime_ns(subentry)) is not None
+                    ),
+                    default=None
+                )
+            return None
+        for target, entry in sanitized_paths.items():
+            if (mtime_ns := get_mtime_ns(entry)) is not None:
+                atime_ns = os.stat(target).st_atime_ns
+                os.utime(target, ns=(atime_ns, mtime_ns))
 
     elapsed_seconds = time.perf_counter() - t0
     return DownloadSummary(
