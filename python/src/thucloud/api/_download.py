@@ -3,6 +3,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import Future, as_completed
+from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
 from typing import Literal, NamedTuple, Protocol
@@ -23,7 +24,12 @@ __all__ = [
 ]
 
 
-class DownloadSummary(NamedTuple):
+class DownloadEntryTarget[Entry: (File, Folder, File | Folder)](NamedTuple):
+    entry: Entry
+    target: Path
+
+@dataclass(eq=False, frozen=True, match_args=False, kw_only=True, slots=True)
+class DownloadSummary:
     target: Path
 
     files_total: int
@@ -35,6 +41,10 @@ class DownloadSummary(NamedTuple):
     bytes_downloaded: int
 
     elapsed: timedelta
+
+    renamed: tuple[DownloadEntryTarget[File | Folder], ...] = field(repr=False)
+    skipped: tuple[DownloadEntryTarget[File], ...] = field(repr=False)
+    overwritten: tuple[DownloadEntryTarget[File], ...] = field(repr=False)
 
 type ProgressEvent = Literal['start', 'progress', 'end', 'skip']
 
@@ -48,6 +58,7 @@ class ProgressCallback(Protocol):
         downloaded: int,
         /,
     ) -> None: ...
+    # Optional:
     # write: Callable[[str], None]
 
 def download(
@@ -78,9 +89,12 @@ def download(
     同一 output_dir 不应被多个 download() 调用并发写入；
     如需这样做，调用方应自行按 output_dir 或 target path 加锁。
     """
+    if if_exists not in {'error', 'overwrite', 'skip'}:
+        raise ValueError(f'invalid if_exists: {if_exists!r}')
 
     lock = threading.Lock()
     executor = None
+    write: Callable[[str], None] | None = getattr(callback, 'write', None)
 
     files_total = 1 if isinstance(entry, File) else entry.file_count
     bytes_total = entry.size
@@ -89,6 +103,10 @@ def download(
     files_overwritten = 0
     bytes_downloaded = 0
     t0 = time.perf_counter()
+
+    rename_list: list[DownloadEntryTarget[File | Folder]] = []
+    skip_list: list[DownloadEntryTarget[File]] = []
+    overwrite_list: list[DownloadEntryTarget[File]] = []
 
     sanitized_paths: dict[Path, File | Folder] = {}
     def reserve_sanitized_path(path: Path, entry: File | Folder):
@@ -112,6 +130,10 @@ def download(
         try:
             target = Path(output_dir, filename_sanitizer(file.name))
             reserve_sanitized_path(target, file)
+            if target.name != file.name:
+                rename_list.append(DownloadEntryTarget(file, target))
+                if write is not None:
+                    write(f'Renamed: {target} (from {file.name!r})')
             existed = target.exists()
             if existed:
                 if not target.is_file():
@@ -121,9 +143,16 @@ def download(
                 if if_exists == 'skip':
                     with lock:
                         files_skipped += 1
+                    skip_list.append(DownloadEntryTarget(file, target))
+                    if write is not None:
+                        write(f'Skipped: {target}')
                     if callback is not None:
                         callback(entry, file, target, 'skip', 0)
                     return target
+                else: # if_exists == 'overwrite'
+                    overwrite_list.append(DownloadEntryTarget(file, target))
+                    if write is not None:
+                        write(f'Overwriting: {target}')
             url = file.raw_path
             if url is None:
                 url = file.get_raw_path(get=requests.get if session is None else session.get)
@@ -165,6 +194,10 @@ def download(
         def dl_folder(folder: Folder, output_dir: str | os.PathLike[str]) -> Path:
             target = Path(output_dir, filename_sanitizer(folder.name))
             reserve_sanitized_path(target, folder)
+            if target.name != folder.name:
+                rename_list.append(DownloadEntryTarget(folder, target))
+                if write is not None:
+                    write(f'Renamed: {target} (from {folder.name!r})')
             target.mkdir(parents=True, exist_ok=True)
             for f in folder:
                 if isinstance(f, File):
@@ -179,7 +212,7 @@ def download(
                 future.result()
         except BaseException as exc:
             executor.shutdown(wait=False, cancel_futures=True)
-            if (write := getattr(callback, 'write', None)) is not None:
+            if write is not None:
                 try:
                     write(
                         f'Download interrupted by {exc!r}.\n'
@@ -202,4 +235,7 @@ def download(
         files_overwritten=files_overwritten,
         bytes_downloaded=bytes_downloaded,
         elapsed=timedelta(seconds=elapsed_seconds),
+        renamed=tuple(rename_list),
+        skipped=tuple(skip_list),
+        overwritten=tuple(overwrite_list),
     )
