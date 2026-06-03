@@ -26,13 +26,18 @@ class TqdmProgressCallback(ProgressCallback):
         'dynamic_ncols': True,
         'smoothing': 1,
     }
-    DESC_WIDTH: ClassVar[int] = 40
+
+    DESC_WIDTH: ClassVar[int | None] = 40
+    """若设置为 None 则不对齐进度条的 desc 部分"""
 
     def write(self, msg: str):
         tqdm.write(msg, file=self._tqdm_kw.get('file', sys.stderr))
 
     @classmethod
     def pad_desc(cls, path: Path) -> str:
+        if cls.DESC_WIDTH is None:
+            return str(path)
+
         # 若长度已够短，直接填充空格
         path_str = str(path)
         path_str_width = [char_width(ch) for ch in path_str]
