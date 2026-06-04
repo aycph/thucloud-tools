@@ -240,10 +240,10 @@ def download(
                     default=None
                 )
             return None
-        for target, entry in sanitized_paths.items():
-            if (mtime_ns := get_mtime_ns(entry)) is not None:
-                atime_ns = os.stat(target).st_atime_ns
-                os.utime(target, ns=(atime_ns, mtime_ns))
+        for _target, _entry in sanitized_paths.items():
+            if (mtime_ns := get_mtime_ns(_entry)) is not None:
+                atime_ns = os.stat(_target).st_atime_ns
+                os.utime(_target, ns=(atime_ns, mtime_ns))
 
     elapsed_seconds = time.perf_counter() - t0
     return DownloadSummary(
