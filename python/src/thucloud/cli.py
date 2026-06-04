@@ -65,8 +65,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=True,
         help='show progress bars',
     )
+    parser.add_argument(
+        '-q',
+        '--quiet',
+        action='store_true',
+        help='suppress progress bars and final summary',
+    )
     return parser
 
+
+def _format_size(size: int, /, exact: bool = False) -> str:
+    if exact:
+        return f'{size:,} B'
+    if size < 1024:
+        return f'{size} B'
+    units = ('KiB', 'MiB', 'GiB', 'TiB')
+    n = size
+    for unit in units:
+        n /= 1024
+        if n < 1024:
+            return f'{n:.2f} {unit}'
+    return f'{n:.2f} {units[-1]}'
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
@@ -78,7 +97,8 @@ def main(argv: list[str] | None = None) -> int:
     parse_workers: int | None = args.parse_workers
     if_exists: Literal['error', 'overwrite', 'skip'] = args.if_exists
     mtime: Literal['off', 'reported', 'derived'] = args.mtime
-    use_progress: bool = args.progress
+    quiet = args.quiet
+    use_progress: bool = args.progress and not quiet
 
     from .api import TqdmProgressCallback, download, parse
     from .api.utils import SessionThreadPoolExecutor
@@ -88,12 +108,31 @@ def main(argv: list[str] | None = None) -> int:
         with callback.hack_parse() if callback is not None else nullcontext():
             with SessionThreadPoolExecutor(max_workers=parse_workers) as executor:
                 entry = parse(url, get=executor.thread_session_get, executor=executor)
-        download(
+        summary = download(
             entry,
             output_dir=output_dir,
             workers=workers,
             if_exists=if_exists,
             mtime=mtime,
             callback=callback,
+        )
+    if not quiet:
+        print(
+            'Download complete.',
+            f'Target: {summary.target}',
+            (
+                f'Files: {summary.files_downloaded}/{summary.files_total} downloaded, '
+                f'{len(summary.skipped)} skipped, '
+                f'{len(summary.renamed)} renamed, '
+                f'{len(summary.overwritten)} overwritten'
+            ),
+            (
+                f'Size: {_format_size(summary.bytes_downloaded)} / '
+                f'{_format_size(summary.bytes_total)} downloaded '
+                f'({_format_size(summary.bytes_downloaded, exact=True)} / '
+                f'{_format_size(summary.bytes_total, exact=True)})'
+            ),
+            f'Elapsed: {summary.elapsed} ({summary.elapsed.total_seconds():.3f} s)',
+            sep='\n',
         )
     return 0
