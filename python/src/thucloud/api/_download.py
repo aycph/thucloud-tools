@@ -37,8 +37,6 @@ class DownloadSummary:
     bytes_total: int
 
     files_downloaded: int
-    files_skipped: int
-    files_overwritten: int
     bytes_downloaded: int
 
     elapsed: timedelta
@@ -105,8 +103,6 @@ def download(
     files_total = 1 if isinstance(entry, File) else entry.file_count
     bytes_total = entry.size
     files_downloaded = 0
-    files_skipped = 0
-    files_overwritten = 0
     bytes_downloaded = 0
     t0 = time.perf_counter()
 
@@ -128,8 +124,6 @@ def download(
                 sanitized_paths[path] = entry
 
     def dl(file: File, output_dir: str | os.PathLike[str]) -> Path:
-        nonlocal files_skipped
-
         session = None if executor is None else executor.thread_session
 
         target = None
@@ -140,15 +134,12 @@ def download(
                 rename_list.append(DownloadEntryTarget(file, target))
                 if write is not None:
                     write(f'Renamed: {target} (from {file.name!r})')
-            existed = target.exists()
-            if existed:
+            if target.exists():
                 if not target.is_file():
                     raise FileExistsError(f'Target exists but is not a file: {target}')
                 if if_exists == 'error':
                     raise FileExistsError(f'File already exists: {target}')
                 if if_exists == 'skip':
-                    with lock:
-                        files_skipped += 1
                     skip_list.append(DownloadEntryTarget(file, target))
                     if write is not None:
                         write(f'Skipped: {target}')
@@ -164,13 +155,11 @@ def download(
                 url = file.get_raw_path(get=requests.get if session is None else session.get)
             overwrite = if_exists == 'overwrite'
             def dl_callback(event: Literal['start', 'progress', 'end'], downloaded: int, total: int | None):
-                nonlocal files_downloaded, files_overwritten, bytes_downloaded
+                nonlocal files_downloaded, bytes_downloaded
                 if event == 'end':
                     with lock:
                         files_downloaded += 1
                         bytes_downloaded += downloaded
-                        if existed:
-                            files_overwritten += 1
                 if callback is not None:
                     callback(entry, file, target, event, downloaded)
             return download_url(
@@ -262,8 +251,6 @@ def download(
         files_total=files_total,
         bytes_total=bytes_total,
         files_downloaded=files_downloaded,
-        files_skipped=files_skipped,
-        files_overwritten=files_overwritten,
         bytes_downloaded=bytes_downloaded,
         elapsed=timedelta(seconds=elapsed_seconds),
         renamed=tuple(rename_list),
