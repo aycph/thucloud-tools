@@ -139,7 +139,7 @@ def _get_dirents(
                 last_modified=datetime.fromisoformat(item['last_modified']),
                 root=root,
                 can_download=can_download,
-                dirents=dirents,
+                _dirents=dirents,
             )
         else:
             return File(
@@ -174,7 +174,7 @@ def _parse_folder(url: str, /, *, get: UrlGetter, executor: Executor | None) -> 
         last_modified=None,
         root=root,
         can_download=can_download,
-        dirents=dirents,
+        _dirents=dirents,
     )
 
 

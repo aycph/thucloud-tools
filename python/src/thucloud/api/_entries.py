@@ -1,7 +1,6 @@
-from collections.abc import Hashable, Iterator
+from collections.abc import Hashable, Iterator, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from types import MappingProxyType
 from typing import dataclass_transform
 from urllib.parse import quote
 
@@ -68,14 +67,14 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
     root: str
     can_download: bool
 
-    dirents: MappingProxyType[str, File | Folder] = field(repr=False)
+    _dirents: Mapping[str, File | Folder] = field(repr=False)
     file_count: int = field(init=False)
     folder_count: int = field(init=False)
 
     def __post_init__(self):
         file_count = 0
         folder_count = 0
-        for f in self.dirents.values():
+        for f in self._dirents.values():
             if isinstance(f, Folder):
                 file_count += f.file_count
                 folder_count += f.folder_count + 1
@@ -85,10 +84,10 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
         object.__setattr__(self, 'folder_count', folder_count)
 
     def __iter__(self) -> Iterator[File | Folder]:
-        return iter(self.dirents.values())
+        return iter(self._dirents.values())
 
     def __len__(self) -> int:
-        return len(self.dirents)
+        return len(self._dirents)
 
     def iter_files(self) -> Iterator[File]:
         for f in self:
@@ -104,14 +103,14 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
                 yield from f.iter_folders()
 
     def __getitem__(self, key: str) -> File | Folder:
-        return self.dirents[key]
+        return self._dirents[key]
 
     def get[T = None](self, key: str, default: T = None) -> File | Folder | T:
-        return self.dirents.get(key, default)
+        return self._dirents.get(key, default)
 
     def __contains__(self, key: object) -> bool:
         if isinstance(key, str):
-            return key in self.dirents
+            return key in self._dirents
         if isinstance(key, (File, Folder)):
-            return self.dirents.get(key.name) == key
+            return self._dirents.get(key.name) == key
         return False
