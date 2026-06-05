@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 from .utils import CachedProperty, UrlGetter
 
-__all__ = ['File', 'Folder']
+__all__ = ['Entry', 'File', 'Folder']
 
 
 # root 只有 Folder 或 Folder 的子项可以获得
@@ -43,6 +43,8 @@ class _Entry(Hashable):
     def __hash__(self) -> int:
         return hash((self.token, self.path))
 
+type Entry = File | Folder
+
 @_entry_dataclass
 class File(_Entry):
     _raw_path: str | None = field(init=False, repr=False)
@@ -63,11 +65,11 @@ class File(_Entry):
         return raw_path
 
 @_entry_dataclass
-class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
+class Folder(_Entry):  # 选择不继承 Mapping，因为迭代的是 values()
     root: str
     can_download: bool
 
-    _dirents: Mapping[str, File | Folder] = field(repr=False)
+    _dirents: Mapping[str, Entry] = field(repr=False)
     file_count: int = field(init=False)
     folder_count: int = field(init=False)
 
@@ -83,7 +85,7 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
         object.__setattr__(self, 'file_count', file_count)
         object.__setattr__(self, 'folder_count', folder_count)
 
-    def __iter__(self) -> Iterator[File | Folder]:
+    def __iter__(self) -> Iterator[Entry]:
         return iter(self._dirents.values())
 
     def __len__(self) -> int:
@@ -96,16 +98,17 @@ class Folder(_Entry): # 选择不继承 Mapping ，因为迭代的是 values()
             else:
                 yield f
 
-    def iter_folders(self) -> Iterator[Folder]:
+    def iter_folders(self) -> Iterator['Folder']:
         for f in self:
             if isinstance(f, Folder):
                 yield f
                 yield from f.iter_folders()
 
-    def __getitem__(self, key: str) -> File | Folder:
+    def __getitem__(self, key: str) -> Entry:
         return self._dirents[key]
 
-    def get[T = None](self, key: str, default: T = None) -> File | Folder | T:
+    # 类型变量默认类型需要 Python 3.13 或更高版本
+    def get[T](self, key: str, default: T = None) -> Entry | T:
         return self._dirents.get(key, default)
 
     def __contains__(self, key: object) -> bool:

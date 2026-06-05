@@ -173,7 +173,8 @@ class _JSLocals(Mapping[str, Any]):
 def parse_js_obj(s: str) -> Any:
     globals = { '__builtins__': {} }
     locals = _JSLocals()
-    return eval(s, globals=globals, locals=locals)
+    # eval 的关键字传参需要 3.13 起
+    return eval(s, globals, locals)
 
 
 ################################################################################
@@ -414,7 +415,7 @@ class Via[O, T]:
     __slots__ = '_fget'
     def __init__(self, fget: Callable[[O], T]):
         self._fget = fget
-    def __getattr__(self, name: str) -> Via.RoutedAttribute[Any, O, T]:
+    def __getattr__(self, name: str) -> 'Via.RoutedAttribute[Any, O, T]':
         if name.startswith('__') and name.endswith('__'):
             raise AttributeError(name)
         return self.RoutedAttribute(self._fget, name)
@@ -444,7 +445,7 @@ class Via[O, T]:
             setattr(self._fget(obj), self._attrname, value)
         def __delete__(self, obj: O_) -> None:
             delattr(self._fget(obj), self._attrname)
-        def __getitem__[V](self, _: type[V]) -> Via.RoutedAttribute[V, O_, T_]:
+        def __getitem__[V](self, _: type[V]) -> 'Via.RoutedAttribute[V, O_, T_]':
             return cast(Via.RoutedAttribute[V, O_, T_], self)
 
 

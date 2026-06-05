@@ -1,10 +1,16 @@
 import re
+import sys
+from collections.abc import Mapping
 from concurrent.futures import Executor
 from datetime import datetime
 from html import unescape
-from types import MappingProxyType
 from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse
+
+if sys.version_info < (3, 15):
+    from types import MappingProxyType as _freeze_mapping
+else:
+    from builtins import frozendict as _freeze_mapping
 
 from ._entries import File, Folder
 from .utils import UrlGetter, default_get, parse_js_obj, traverse
@@ -108,7 +114,7 @@ def _get_dirents(
     path: str,
     /, token: str, can_download: bool, root: str,
     *, get: UrlGetter, executor: Executor | None,
-) -> MappingProxyType[str, File | Folder]:
+) -> Mapping[str, File | Folder]:
     if executor is None:
         def get_dirent_list(path: str):
             return _fetch_dirent_list(path, token, get=get)
@@ -121,8 +127,8 @@ def _get_dirents(
         def get_dirent_list(path: str):
             return path2direntlist[path]
 
-    def get_dirents(path: str) -> MappingProxyType[str, File | Folder]:
-        return MappingProxyType({
+    def get_dirents(path: str) -> Mapping[str, File | Folder]:
+        return _freeze_mapping({
             (f := parse_item(item)).name: f
             for item in get_dirent_list(path)
         })
