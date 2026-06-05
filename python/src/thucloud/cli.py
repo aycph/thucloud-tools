@@ -1,4 +1,6 @@
 import argparse
+import signal
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Literal
@@ -87,7 +89,7 @@ def _format_size(size: int, /, exact: bool = False) -> str:
             return f'{n:.2f} {unit}'
     return f'{n:.2f} {units[-1]}'
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -135,4 +137,10 @@ def main(argv: list[str] | None = None) -> int:
             f'Elapsed: {summary.elapsed} ({summary.elapsed.total_seconds():.3f} s)',
             sep='\n',
         )
-    return 0
+
+def main(argv: list[str] | None = None) -> int | None:
+    try:
+        return _main(argv)
+    except KeyboardInterrupt:
+        print('Interrupted.', file=sys.stderr)
+        return 128 + signal.SIGINT
