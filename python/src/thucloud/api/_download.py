@@ -124,8 +124,6 @@ def download(
                 sanitized_paths[path] = entry
 
     def dl(file: File, output_dir: str | os.PathLike[str]) -> Path:
-        session = None if executor is None else executor.thread_session
-
         target = None
         try:
             target = Path(output_dir, filename_sanitizer(file.name))
@@ -150,6 +148,7 @@ def download(
                     overwrite_list.append(DownloadEntryTarget(file, target))
                     if write is not None:
                         write(f'Overwriting: {target}')
+            session = None if executor is None else executor.thread_session
             url = file.raw_path
             if url is None:
                 url = file.get_raw_path(get=requests.get if session is None else session.get)
