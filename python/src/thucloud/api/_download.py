@@ -3,7 +3,7 @@ import os
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import Future, as_completed
+from concurrent.futures import CancelledError, Future, as_completed
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
@@ -84,7 +84,7 @@ def download(
     下载文件夹时，若某个下载任务失败或下载过程被中断，会尝试取消尚未开始运行的任务，
     并通过 callback.write 输出提示信息（如果 callback 提供了该方法）。
     随后会等待已经开始运行的任务结束；在等待期间再次收到 KeyboardInterrupt 等异常时，
-    会停止等待并继续向外抛出该异常。
+    会请求已经开始运行的下载任务尽快停止，并在原异常上附加说明后继续抛出。
 
     同一 output_dir 不应被多个 download() 调用并发写入；
     如需这样做，调用方应自行按 output_dir 或 target path 加锁。
@@ -97,6 +97,7 @@ def download(
         raise ValueError(f'invalid mtime: {mtime!r}')
 
     lock = threading.Lock()
+    terminated = threading.Event()
     executor = None
     write: Callable[[str], None] | None = getattr(callback, 'write', None)
 
@@ -159,6 +160,9 @@ def download(
                     with lock:
                         files_downloaded += 1
                         bytes_downloaded += downloaded
+                elif terminated.is_set():
+                    # 放行 'end' 事件，因为本来任务就要结束了，仅其它事件用于协作取消
+                    raise CancelledError('download cancelled by interruption')
                 if callback is not None:
                     callback(entry, file, target, event, downloaded)
             return download_url(
@@ -200,24 +204,28 @@ def download(
                     dl_folder(f, target)
             return target
 
-        try:
-            target = dl_folder(entry, output_dir)
-            for future in as_completed(futures):
-                future.result()
-        except BaseException as exc:
-            executor.shutdown(wait=False, cancel_futures=True)
-            if write is not None:
+        with executor:
+            try:
+                target = dl_folder(entry, output_dir)
+                for future in as_completed(futures):
+                    future.result()
+            except BaseException as exc:
+                if write is not None:
+                    try:
+                        write(
+                            f'Download interrupted by {exc!r}.\n'
+                            'Pending downloads have been cancelled.\n'
+                            'Waiting for running downloads to finish; '
+                            'press Ctrl-C again to request immediate termination.\n'
+                        )
+                    except Exception as write_exc:
+                        exc.add_note(f'Failed to write interruption message: {write_exc!r}')
                 try:
-                    write(
-                        f'Download interrupted by {exc!r}.\n'
-                        'Pending downloads have been cancelled.\n'
-                        'Waiting for running downloads to finish; press Ctrl-C again to stop waiting.\n'
-                    )
-                except Exception as write_exc:
-                    exc.add_note(f'Failed to write interruption message: {write_exc!r}')
-            raise
-        finally:
-            executor.shutdown()
+                    executor.shutdown(wait=True, cancel_futures=True)
+                except BaseException as wait_exc:
+                    terminated.set()
+                    exc.add_note(f'Interrupted while waiting for running downloads to finish: {wait_exc!r}')
+                raise
 
     if mtime != 'off':
         if write is not None:
