@@ -336,8 +336,8 @@ class SessionThreadPoolExecutor(ThreadPoolExecutor):
             self._sessions.append(session)
             return session
 
-    def thread_session_get(self, url: str) -> requests.Response:
-        return self.thread_session.get(url)
+    def thread_session_get(self, url: str, **kwargs) -> requests.Response:
+        return self.thread_session.get(url, **kwargs)
 
 ################################################################################
 ### traverse: concurrent graph traversal
