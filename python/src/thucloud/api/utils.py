@@ -1,5 +1,6 @@
 import functools
 import os
+import sys
 import tempfile
 import threading
 import unicodedata
@@ -10,6 +11,11 @@ from concurrent.futures import (
 )
 from pathlib import Path
 from typing import Any, Literal, Protocol, Self, cast, overload, override
+
+if sys.version_info < (3, 15):
+    TypeForm = type
+else:
+    from typing import TypeForm
 
 import requests
 
@@ -445,7 +451,7 @@ class Via[O, T]:
             setattr(self._fget(obj), self._attrname, value)
         def __delete__(self, obj: O_) -> None:
             delattr(self._fget(obj), self._attrname)
-        def __getitem__[V](self, _: type[V]) -> 'Via.RoutedAttribute[V, O_, T_]':
+        def __getitem__[V](self, _: TypeForm[V]) -> 'Via.RoutedAttribute[V, O_, T_]':
             return cast(Via.RoutedAttribute[V, O_, T_], self)
 
 
