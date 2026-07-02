@@ -3,7 +3,7 @@ import sys
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, ClassVar, assert_never
 
 from tqdm import tqdm
 
@@ -175,7 +175,7 @@ class TqdmProgressCallback(ProgressCallback):
                         self._files_done += 1
                         self._update_postfix() # refresh total_bar
                 case _:
-                    raise ValueError(f'unknown event: {event!r}')
+                    assert_never(event)
             return
 
         if event == 'skip': # 提前返回，避免 skip 时创建 bar
@@ -234,10 +234,8 @@ class TqdmProgressCallback(ProgressCallback):
                     self._files_done += 1
                     self._update_postfix() # refresh total_bar
                 del self._thread_file
-            case 'skip':
-                pass # 已提前处理
             case _:
-                raise ValueError(f'unknown event: {event!r}')
+                assert_never(event)
 
     def _update_postfix(self, refresh: bool = True):
         total_bar = self._total_bar
