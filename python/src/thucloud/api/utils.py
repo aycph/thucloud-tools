@@ -13,7 +13,10 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, Self, cast, overload, override
 
 if sys.version_info < (3, 15):
-    TypeForm = type
+    try:
+        from typing_extensions import TypeForm
+    except ImportError:
+        from builtins import type as TypeForm
 else:
     from typing import TypeForm
 
