@@ -1,15 +1,15 @@
-import { type Executor, inlineExecutor } from "./executor.js";
+import { type Executor, inlineExecutor } from './executor.js';
 
 
 interface _CloudEntry {
-        readonly token: string;
-        readonly path: string;
+    readonly token: string;
+    readonly path: string;
 
-        readonly name: string;
-        readonly size: number;
-        readonly last_modified: Date | null;
-        readonly root: string | null;
-        readonly can_download: boolean | null;
+    readonly name: string;
+    readonly size: number;
+    readonly last_modified: Date | null;
+    readonly root: string | null;
+    readonly can_download: boolean | null;
 }
 
 export type CloudEntry = CloudFile | CloudFolder;
@@ -33,15 +33,14 @@ export class CloudFile implements _CloudEntry {
             return this._raw_path;
         if (this.can_download)
             return this._raw_path = `https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}&dl=1`;
-        else
-            return this._raw_path = null;
+        return this._raw_path = null;
     }
 
     async get_raw_path(exec: Executor = inlineExecutor): Promise<string> {
         const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`, exec);
         const raw_path = file.raw_path;
         if (raw_path === undefined || raw_path === null)
-            throw Error('Parsed file did not provide a raw URL')
+            throw new Error('Parsed file did not provide a raw url');
         return this._raw_path = raw_path;
     }
 }
@@ -64,7 +63,7 @@ export class CloudFolder implements _CloudEntry {
     ) {
         let file_count = 0;
         let folder_count = 0;
-        for (let f of _dirents.values()) {
+        for (const f of _dirents.values()) {
             if (f instanceof CloudFolder) {
                 file_count += f.file_count;
                 folder_count += f.folder_count + 1;
@@ -85,7 +84,7 @@ export class CloudFolder implements _CloudEntry {
     }
 
     *iter_files(): IterableIterator<CloudFile> {
-        for (let f of this) {
+        for (const f of this) {
             if (f instanceof CloudFolder)
                 yield* f.iter_files();
             else
@@ -94,7 +93,7 @@ export class CloudFolder implements _CloudEntry {
     }
 
     *iter_folders(): IterableIterator<CloudFolder> {
-        for (let f of this) {
+        for (const f of this) {
             if (f instanceof CloudFolder) {
                 yield f;
                 yield* f.iter_folders();
@@ -118,11 +117,11 @@ export async function parse(url: string, exec: Executor = inlineExecutor): Promi
         throw new Error(`Invalid host: ${parsed.host}`);
     const paths = _strip(parsed.pathname, '/').split('/');
     if (paths[1] === undefined || !/^[0-9a-f]{20}$/.test(paths[1]))
-        throw Error(`Unrecognized url: ${url}`);
+        throw new Error(`Unrecognized url: ${url}`);
     if (paths[0] === 'd') {
         if (paths.length >= 3) {
             if (paths.length > 3 || paths[2] !== 'files')
-                throw Error(`Unrecognized url: ${url}`);
+                throw new Error(`Unrecognized url: ${url}`);
             return _parse_file(url, exec);
         } else {
             return _parse_folder(url, exec);
@@ -130,7 +129,7 @@ export async function parse(url: string, exec: Executor = inlineExecutor): Promi
     } else if (paths[0] === 'f') {
         return _parse_file(url, exec);
     } else {
-        throw Error(`Unrecognized url: ${url}`);
+        throw new Error(`Unrecognized url: ${url}`);
     }
 }
 
@@ -178,44 +177,49 @@ async function _parse_file(url: string, exec: Executor): Promise<CloudFile> {
     if (info === null) {
         const token = url.match(/\/([0-9a-f]{20})\//)?.[1];
         if (token === undefined)
-            throw Error(`Unrecognized url: ${url}`);
+            throw new Error(`Unrecognized url: ${url}`);
         const path = new URL(url).searchParams.get('p');
         return await _parse_wopi_file(html, token, path, exec);
     }
     if ('dirName' in info)
-        throw Error('Got folder page when parsing file link');
+        throw new Error('Got folder page when parsing file link');
     return new CloudFile(
-        info['sharedToken'],
-        info['filePath'],
-        info['fileName'],
-        info['fileSize'],
+        info.sharedToken,
+        info.filePath,
+        info.fileName,
+        info.fileSize,
         null,
         null,
-        info['canDownload'],
-        info['rawPath']
+        info.canDownload,
+        info.rawPath,
     );
 }
 
-type _WOPIInfo = {
+type WOPIInfo = {
     BaseFileName: string,
     Size: number,
     LastModifiedTime: string,
 };
 
-async function _parse_wopi_file(html: string, token: string, path: string | null, exec: Executor): Promise<CloudFile> {
+async function _parse_wopi_file(
+    html: string,
+    token: string,
+    path: string | null,
+    exec: Executor,
+): Promise<CloudFile> {
     const action = html.match(/<form id="office_form" name="office_form" target="office_frame" action="(.*?)" method="post">/)?.[1];
     if (action === undefined)
-        throw Error('Unexpected html: office_form not found');
+        throw new Error('Unexpected html: office_form not found');
     const wopi = new URL(action.replaceAll('&amp;', '&')).searchParams.get('WOPISrc');
     if (wopi === null)
-        throw Error('Unexpected html: WOPISrc not found');
+        throw new Error('Unexpected html: WOPISrc not found');
     const access_token = html.match(/<input name="access_token" value="([0-9a-f]{32})" type="hidden"\/>/)?.[1];
     if (access_token === undefined)
-        throw Error('Unexpected html: access_token not found');
+        throw new Error('Unexpected html: access_token not found');
 
     const info_url = `${wopi}?access_token=${access_token}`;
     const raw_path = `${wopi}/contents?access_token=${access_token}`;
-    const info = await exec.submit(fetch_json<_WOPIInfo>, info_url);
+    const info = await exec.submit(fetch_json<WOPIInfo>, info_url);
     return new CloudFile(
         token,
         path ?? '/' + info.BaseFileName,
@@ -232,9 +236,9 @@ async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> 
     const html = await exec.submit(fetch_text, url);
     const info = _extract_page_options(html);
     if (info === null)
-        throw Error(`Unrecognized HTML: ${url}`);
+        throw new Error(`Unrecognized html: ${url}`);
     if ('fileName' in info)
-        throw Error('Got file page when parsing folder link');
+        throw new Error('Got file page when parsing folder link');
 
     const token = info.token;
     const can_download = info.canDownload;
@@ -269,7 +273,13 @@ type Dirent = {
     size: number,
 };
 
-async function _get_dirents(path: string, token: string, can_download: boolean, root: string, exec: Executor): Promise<ReadonlyMap<string, CloudEntry>> {
+async function _get_dirents(
+    path: string,
+    token: string,
+    can_download: boolean,
+    root: string,
+    exec: Executor,
+): Promise<ReadonlyMap<string, CloudEntry>> {
     async function parse_item(item: Dirent): Promise<CloudEntry> {
         if (item.is_dir) {
             const path = item.folder_path;
@@ -300,7 +310,7 @@ async function _get_dirents(path: string, token: string, can_download: boolean, 
     }
 
     const api = `https://cloud.tsinghua.edu.cn/api/v2.1/share-links/${token}/dirents/?path=${encodeURIComponent(path)}`;
-    const _dirent_list = (await exec.submit(fetch_json<{dirent_list: Dirent[]}>, api))['dirent_list'];
+    const _dirent_list = (await exec.submit(fetch_json<{dirent_list: Dirent[]}>, api)).dirent_list;
     const dirent_list = await Promise.all(_dirent_list.map(parse_item));
     return new Map(dirent_list.map(f => [f.name, f]));
 }
