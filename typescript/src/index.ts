@@ -1,3 +1,6 @@
+import { type Executor, inlineExecutor } from "./executor.js";
+
+
 interface _CloudEntry {
         readonly token: string;
         readonly path: string;
@@ -34,8 +37,8 @@ export class CloudFile implements _CloudEntry {
             return this._raw_path = null;
     }
 
-    async get_raw_path(): Promise<string> {
-        const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`);
+    async get_raw_path(exec: Executor = inlineExecutor): Promise<string> {
+        const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`, exec);
         const raw_path = file.raw_path;
         if (raw_path === undefined || raw_path === null)
             throw Error('Parsed file did not provide a raw URL')
@@ -109,7 +112,7 @@ export class CloudFolder implements _CloudEntry {
 }
 
 
-export async function parse(url: string): Promise<CloudEntry> {
+export async function parse(url: string, exec: Executor = inlineExecutor): Promise<CloudEntry> {
     const parsed = new URL(url);
     if (parsed.host !== 'cloud.tsinghua.edu.cn')
         throw new Error(`Invalid host: ${parsed.host}`);
@@ -120,12 +123,12 @@ export async function parse(url: string): Promise<CloudEntry> {
         if (paths.length >= 3) {
             if (paths.length > 3 || paths[2] !== 'files')
                 throw Error(`Unrecognized url: ${url}`);
-            return _parse_file(url);
+            return _parse_file(url, exec);
         } else {
-            return _parse_folder(url);
+            return _parse_folder(url, exec);
         }
     } else if (paths[0] === 'f') {
-        return _parse_file(url);
+        return _parse_file(url, exec);
     } else {
         throw Error(`Unrecognized url: ${url}`);
     }
@@ -136,6 +139,16 @@ function _strip(str: string, chars: string): string {
     while (start <= end && chars.includes(str.charAt(start))) ++start;
     while (end >= start && chars.includes(str.charAt(end))) --end;
     return str.slice(start, end + 1);
+}
+
+async function fetch_json<O>(url: string): Promise<O> {
+    const res = await fetch(url);
+    return await res.json() as O;
+}
+
+async function fetch_text(url: string): Promise<string> {
+    const res = await fetch(url);
+    return await res.text();
 }
 
 type _PageOptions = {
@@ -159,15 +172,15 @@ function _extract_page_options(html: string): _PageOptions | null {
     return eval(`(${str})`)['pageOptions'];
 }
 
-async function _parse_file(url: string): Promise<CloudFile> {
-    const html = await fetch(url).then(res => res.text());
+async function _parse_file(url: string, exec: Executor): Promise<CloudFile> {
+    const html = await exec.submit(fetch_text, url);
     const info = _extract_page_options(html);
     if (info === null) {
         const token = url.match(/\/([0-9a-f]{20})\//)?.[1];
         if (token === undefined)
             throw Error(`Unrecognized url: ${url}`);
         const path = new URL(url).searchParams.get('p');
-        return await _parse_wopi_file(html, token, path);
+        return await _parse_wopi_file(html, token, path, exec);
     }
     if ('dirName' in info)
         throw Error('Got folder page when parsing file link');
@@ -189,7 +202,7 @@ type _WOPIInfo = {
     LastModifiedTime: string,
 };
 
-async function _parse_wopi_file(html: string, token: string, path: string | null): Promise<CloudFile> {
+async function _parse_wopi_file(html: string, token: string, path: string | null, exec: Executor): Promise<CloudFile> {
     const action = html.match(/<form id="office_form" name="office_form" target="office_frame" action="(.*?)" method="post">/)?.[1];
     if (action === undefined)
         throw Error('Unexpected html: office_form not found');
@@ -202,7 +215,7 @@ async function _parse_wopi_file(html: string, token: string, path: string | null
 
     const info_url = `${wopi}?access_token=${access_token}`;
     const raw_path = `${wopi}/contents?access_token=${access_token}`;
-    const info = await fetch(info_url).then(res => res.json()) as _WOPIInfo;
+    const info = await exec.submit(fetch_json<_WOPIInfo>, info_url);
     return new CloudFile(
         token,
         path ?? '/' + info.BaseFileName,
@@ -215,8 +228,8 @@ async function _parse_wopi_file(html: string, token: string, path: string | null
     );
 }
 
-async function _parse_folder(url: string): Promise<CloudFolder> {
-    const html = await fetch(url).then(res => res.text());
+async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> {
+    const html = await exec.submit(fetch_text, url);
     const info = _extract_page_options(html);
     if (info === null)
         throw Error(`Unrecognized HTML: ${url}`);
@@ -228,7 +241,7 @@ async function _parse_folder(url: string): Promise<CloudFolder> {
     const root = info.dirName;
     const path = info.relativePath;
     const name = _strip(path, '/').split('/').pop() || root;
-    const dirents = await _get_dirents(path, token, can_download, root);
+    const dirents = await _get_dirents(path, token, can_download, root, exec);
     const size = dirents.values().reduce((s, f) => s + f.size, 0);
     return new CloudFolder(
         token,
@@ -256,11 +269,11 @@ type Dirent = {
     size: number,
 };
 
-async function _get_dirents(path: string, token: string, can_download: boolean, root: string): Promise<ReadonlyMap<string, CloudEntry>> {
+async function _get_dirents(path: string, token: string, can_download: boolean, root: string, exec: Executor): Promise<ReadonlyMap<string, CloudEntry>> {
     async function parse_item(item: Dirent): Promise<CloudEntry> {
         if (item.is_dir) {
             const path = item.folder_path;
-            const dirents = await _get_dirents(path, token, can_download, root);
+            const dirents = await _get_dirents(path, token, can_download, root, exec);
             const size = dirents.values().reduce((s, f) => s + f.size, 0);
             return new CloudFolder(
                 token,
@@ -287,7 +300,7 @@ async function _get_dirents(path: string, token: string, can_download: boolean, 
     }
 
     const api = `https://cloud.tsinghua.edu.cn/api/v2.1/share-links/${token}/dirents/?path=${encodeURIComponent(path)}`;
-    const _dirent_list = (await fetch(api).then(res => res.json()))['dirent_list'] as Dirent[];
+    const _dirent_list = (await exec.submit(fetch_json<{dirent_list: Dirent[]}>, api))['dirent_list'];
     const dirent_list = await Promise.all(_dirent_list.map(parse_item));
     return new Map(dirent_list.map(f => [f.name, f]));
 }
