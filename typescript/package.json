@@ -3,6 +3,10 @@
     "name": "thucloud",
     "version": "1.0.0",
     "type": "module",
+    "exports": {
+        ".": "./dist/index.js",
+        "./*": "./dist/*.js"
+    },
     "scripts": {
         "build": "tsc",
         "check": "tsc --noEmit"
