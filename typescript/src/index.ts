@@ -22,21 +22,24 @@ export class CloudFile implements _CloudEntry {
         readonly root: string | null,
         readonly can_download: boolean | null,
 
-        private _raw_path: string | null,
+        protected _raw_path: string | null | undefined,
     ) {}
 
-    async get_raw_path(): Promise<string> {
-        if (this._raw_path !== null)
+    get raw_path(): string | null {
+        if (this._raw_path !== undefined)
             return this._raw_path;
-        if (this.can_download) {
-            this._raw_path = `https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}&dl=1`;
-        } else {
-            const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`);
-            this._raw_path = file._raw_path;
-            if (this._raw_path === null)
-                throw Error('Parsed file did not provide a raw URL')
-        }
-        return this._raw_path;
+        if (this.can_download)
+            return this._raw_path = `https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}&dl=1`;
+        else
+            return this._raw_path = null;
+    }
+
+    async get_raw_path(): Promise<string> {
+        const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`);
+        const raw_path = file.raw_path;
+        if (raw_path === undefined || raw_path === null)
+            throw Error('Parsed file did not provide a raw URL')
+        return this._raw_path = raw_path;
     }
 }
 
@@ -54,11 +57,11 @@ export class CloudFolder implements _CloudEntry {
         readonly root: string,
         readonly can_download: boolean,
 
-        readonly dirents: ReadonlyMap<string, CloudEntry>,
+        protected readonly _dirents: ReadonlyMap<string, CloudEntry>,
     ) {
         let file_count = 0;
         let folder_count = 0;
-        for (let f of dirents.values()) {
+        for (let f of _dirents.values()) {
             if (f instanceof CloudFolder) {
                 file_count += f.file_count;
                 folder_count += f.folder_count + 1;
@@ -70,11 +73,15 @@ export class CloudFolder implements _CloudEntry {
         this.folder_count = folder_count;
     }
 
-    [Symbol.iterator](): IterableIterator<CloudEntry, void, undefined> {
-        return this.dirents.values();
+    [Symbol.iterator](): IterableIterator<CloudEntry> {
+        return this._dirents.values();
     }
 
-    *iter_files(): Generator<CloudFile, void, never> {
+    get length(): number {
+        return this._dirents.size;
+    }
+
+    *iter_files(): IterableIterator<CloudFile> {
         for (let f of this) {
             if (f instanceof CloudFolder)
                 yield* f.iter_files();
@@ -83,13 +90,21 @@ export class CloudFolder implements _CloudEntry {
         }
     }
 
-    *iter_folders(): Generator<CloudFolder, void, undefined> {
+    *iter_folders(): IterableIterator<CloudFolder> {
         for (let f of this) {
             if (f instanceof CloudFolder) {
                 yield f;
                 yield* f.iter_folders();
             }
         }
+    }
+
+    get(name: string): CloudEntry | undefined {
+        return this._dirents.get(name);
+    }
+
+    has(name: string): boolean {
+        return this._dirents.has(name);
     }
 }
 
@@ -99,7 +114,7 @@ export async function parse(url: string): Promise<CloudEntry> {
     if (parsed.host !== 'cloud.tsinghua.edu.cn')
         throw new Error(`Invalid host: ${parsed.host}`);
     const paths = _strip(parsed.pathname, '/').split('/');
-    if (paths.length < 2 || !/^[0-9a-f]{20}$/.test(paths[1]))
+    if (paths[1] === undefined || !/^[0-9a-f]{20}$/.test(paths[1]))
         throw Error(`Unrecognized url: ${url}`);
     if (paths[0] === 'd') {
         if (paths.length >= 3) {
@@ -266,7 +281,7 @@ async function _get_dirents(path: string, token: string, can_download: boolean, 
                 new Date(item.last_modified),
                 root,
                 can_download,
-                null,
+                undefined,
             );
         }
     }
