@@ -1,0 +1,13 @@
+{
+    "private": true,
+    "name": "thucloud",
+    "version": "1.0.0",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "check": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "typescript": "^6.0.0"
+    }
+}
