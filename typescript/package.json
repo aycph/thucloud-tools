@@ -12,6 +12,7 @@
         "check": "tsc --noEmit"
     },
     "devDependencies": {
-        "typescript": "^6.0.0"
+        "@types/node": "^24",
+        "typescript": "^6"
     }
 }

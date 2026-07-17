@@ -2,6 +2,7 @@
     "compilerOptions": {
         "target": "es2025",
         "module": "nodenext",
+        "types": ["node"],
         "rootDir": "src",
         "outDir": "dist",
         "declaration": true,
