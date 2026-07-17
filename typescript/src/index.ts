@@ -1,4 +1,4 @@
-import { type Executor, inlineExecutor } from './executor.js';
+import { type Executor, PromisePoolExecutor, inlineExecutor } from './executor.js';
 
 
 interface _CloudEntry {
@@ -111,7 +111,8 @@ export class CloudFolder implements _CloudEntry {
 }
 
 
-export async function parse(url: string, exec: Executor = inlineExecutor): Promise<CloudEntry> {
+export async function parse(url: string, max_workers: number | null = 10): Promise<CloudEntry> {
+    const exec = max_workers === null ? inlineExecutor : new PromisePoolExecutor(max_workers);
     const parsed = new URL(url);
     if (parsed.host !== 'cloud.tsinghua.edu.cn')
         throw new Error(`Invalid host: ${parsed.host}`);
@@ -142,11 +143,13 @@ function _strip(str: string, chars: string): string {
 
 async function fetch_json<O>(url: string): Promise<O> {
     const res = await fetch(url);
+    if (!res.ok) throw res;
     return await res.json() as O;
 }
 
 async function fetch_text(url: string): Promise<string> {
     const res = await fetch(url);
+    if (!res.ok) throw res;
     return await res.text();
 }
 
