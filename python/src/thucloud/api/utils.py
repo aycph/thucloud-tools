@@ -223,6 +223,16 @@ def _get_content_length(response: requests.Response) -> int | None:
         )
         return None
 
+# _rename 为了避免竞态，应使用 os.rename 在 Windows 上的行为，
+# 但是 os.rename 在 Unix 上效果同 os.replace ，
+# 此时使用 link + unlink 的方案来模拟
+if os.name == 'nt':
+    _rename = os.rename
+else:
+    def _rename(src: str | os.PathLike[str], dst: str | os.PathLike[str]):
+        os.link(src, dst)
+        os.unlink(src)
+
 DEFAULT_TIMEOUT = (5, 10)
 DEFAULT_CHUNK_SIZE = 256 * 1024
 
@@ -242,7 +252,7 @@ def download(
         raise ValueError(f'Invalid chunk_size: {chunk_size}')
 
     target = Path(path)
-    if target.exists() and not overwrite:
+    if not overwrite and target.exists():
         raise FileExistsError(f'File already exists: {target}')
 
     client = session or requests
@@ -260,6 +270,7 @@ def download(
             prefix=f'~$',
             dir=target.parent,
         )
+        # 需立刻使用上下文管理器打开该文件以避免资源泄漏
         with os.fdopen(fd, 'wb') as file:
             for chunk in response.iter_content(chunk_size):
                 file.write(chunk)
@@ -267,12 +278,16 @@ def download(
                 if callback is not None:
                     callback('progress', downloaded, total)
 
-        # 再次检查，避免意外覆盖文件
-        if target.exists() and not overwrite:
-            # 移除临时后缀，表示文件已被完整下载
-            os.replace(tmp_path, tmp_path.removesuffix('.tmp'))
-            raise FileExistsError(f'File already exists: {target}')
-        os.replace(tmp_path, target)
+        if overwrite:
+            os.replace(tmp_path, target)
+        else:
+            try:
+                _rename(tmp_path, target)
+            except FileExistsError:
+                # 若目标已存在则移除临时后缀，表示文件已被完整下载
+                _rename(tmp_path, tmp_path.removesuffix('.tmp'))
+                raise FileExistsError(
+                    f'File already exists: {target}') from None
 
         # 汇报完成
         if callback is not None:
