@@ -302,8 +302,8 @@ def download(
 
 type UrlGetter = Callable[[str], requests.Response]
 
-def default_get(url: str, /, timeout=DEFAULT_TIMEOUT) -> requests.Response:
-    r = requests.get(url, timeout=timeout)
+def default_get(url: str, /) -> requests.Response:
+    r = requests.get(url, timeout=DEFAULT_TIMEOUT)
     r.raise_for_status()
     return r
 

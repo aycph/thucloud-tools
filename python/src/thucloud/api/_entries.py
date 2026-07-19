@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import dataclass_transform
 from urllib.parse import quote
 
-from .utils import CachedProperty, UrlGetter
+from .utils import CachedProperty, UrlGetter, default_get
 
 __all__ = ['Entry', 'File', 'Folder']
 
@@ -56,7 +56,7 @@ class File(_Entry):
             return f'https://cloud.tsinghua.edu.cn/d/{self.token}/files/?p={quote(self.path)}&dl=1'
         return None
 
-    def get_raw_path(self, /, *, get: UrlGetter) -> str:
+    def get_raw_path(self, /, *, get: UrlGetter = default_get) -> str:
         from ._parser import _parse_file # 避免循环导入
         file = _parse_file(f'https://cloud.tsinghua.edu.cn/d/{self.token}/files/?p={quote(self.path)}', get=get)
         raw_path = file.raw_path
