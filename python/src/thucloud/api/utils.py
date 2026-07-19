@@ -251,9 +251,9 @@ def download(
     if chunk_size <= 0:
         raise ValueError(f'Invalid chunk_size: {chunk_size}')
 
-    target = Path(path)
-    if not overwrite and target.exists():
-        raise FileExistsError(f'File already exists: {target}')
+    path = Path(path)
+    if not overwrite and path.exists():
+        raise FileExistsError(f'File already exists: {path}')
 
     client = session or requests
     response = client.get(url, headers=headers, timeout=timeout, stream=True)
@@ -266,9 +266,9 @@ def download(
             callback('start', 0, total)
 
         fd, tmp_path = tempfile.mkstemp(
-            suffix=f'-{target.name}.tmp',
+            suffix=f'-{path.name}.tmp',
             prefix=f'~$',
-            dir=target.parent,
+            dir=path.parent,
         )
         # 需立刻使用上下文管理器打开该文件以避免资源泄漏
         with os.fdopen(fd, 'wb') as file:
@@ -279,21 +279,21 @@ def download(
                     callback('progress', downloaded, total)
 
         if overwrite:
-            os.replace(tmp_path, target)
+            os.replace(tmp_path, path)
         else:
             try:
-                _rename(tmp_path, target)
+                _rename(tmp_path, path)
             except FileExistsError:
                 # 若目标已存在则移除临时后缀，表示文件已被完整下载
                 _rename(tmp_path, tmp_path.removesuffix('.tmp'))
                 raise FileExistsError(
-                    f'File already exists: {target}') from None
+                    f'File already exists: {path}') from None
 
         # 汇报完成
         if callback is not None:
             callback('end', downloaded, total)
 
-    return target
+    return path
 
 
 ################################################################################
