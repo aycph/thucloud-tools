@@ -10,6 +10,14 @@ const renameNoReplace: typeof rename = async (oldPath, newPath) => {
     await unlink(oldPath);
 };
 
+class ErrnoError<Code extends string> extends Error implements NodeJS.ErrnoException {
+    code: Code;
+    constructor(code: Code, message?: string) {
+        super(message);
+        this.code = code;
+    }
+}
+
 function isFileExistsError(error: unknown): error is NodeJS.ErrnoException {
     return (
         error instanceof Error &&
@@ -41,7 +49,7 @@ async function mktemp_ofstream(path: string): Promise<{
             throw error;
         }
     }
-    throw new Error('No usable temporary file name found');
+    throw new ErrnoError('EEXIST', 'No usable temporary file name found');
 }
 
 function get_content_length(headers: Headers): number | null {
@@ -85,7 +93,7 @@ export async function download(
     }: DownloadConfig = {},
 ): Promise<void> {
     if (!overwrite && existsSync(path))
-        throw new Error(`File already exists: ${path}`);
+        throw new ErrnoError('EEXIST', `File already exists: ${path}`);
 
     const res = await fetch(url, { headers, signal });
     if (!res.ok)
@@ -120,7 +128,7 @@ export async function download(
         } catch (error) {
             if (isFileExistsError(error)) {
                 await renameNoReplace(tempPath, tempPath.slice(0, -TEMP_SUFFIX.length));
-                throw new Error(`File already exists: ${path}`);
+                throw new ErrnoError('EEXIST', `File already exists: ${path}`);
             } else {
                 throw error;
             }

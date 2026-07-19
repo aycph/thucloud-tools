@@ -15,7 +15,7 @@ export class PromisePoolExecutor implements Executor {
 
     constructor(max_workers: number) {
         if (!Number.isInteger(max_workers) || max_workers <= 0)
-            throw new Error("max_workers must be a positive integer");
+            throw new RangeError('max_workers must be a positive integer');
         this.num_idle = max_workers;
         this.queue = [];
     }

@@ -1,3 +1,5 @@
+import assert from 'node:assert/strict';
+
 import { type Executor, PromisePoolExecutor, inlineExecutor } from './executor.js';
 
 
@@ -39,8 +41,7 @@ export class CloudFile implements _CloudEntry {
     async get_raw_path(exec: Executor = inlineExecutor): Promise<string> {
         const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`, exec);
         const raw_path = file.raw_path;
-        if (raw_path === undefined || raw_path === null)
-            throw new Error('Parsed file did not provide a raw url');
+        assert(raw_path != null, 'Parsed file did not provide a raw url');
         return this._raw_path = raw_path;
     }
 }
@@ -184,8 +185,8 @@ async function _parse_file(url: string, exec: Executor): Promise<CloudFile> {
         const path = new URL(url).searchParams.get('p');
         return await _parse_wopi_file(html, token, path, exec);
     }
-    if ('dirName' in info)
-        throw new Error('Got folder page when parsing file link');
+    if (!('fileName' in info))
+        throw new Error(`Unrecognized html: ${url}`);
     return new CloudFile(
         info.sharedToken,
         info.filePath,
@@ -238,10 +239,8 @@ async function _parse_wopi_file(
 async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> {
     const html = await exec.submit(fetch_text, url);
     const info = _extract_page_options(html);
-    if (info === null)
+    if (info === null || !('dirName' in info))
         throw new Error(`Unrecognized html: ${url}`);
-    if ('fileName' in info)
-        throw new Error('Got file page when parsing folder link');
 
     const token = info.token;
     const can_download = info.canDownload;
