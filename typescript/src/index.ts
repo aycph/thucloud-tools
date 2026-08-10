@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import { mkdir, stat, utimes } from 'node:fs/promises';
+import { join as pathJoin } from 'node:path';
+import { performance } from 'node:perf_hooks';
 
+import { type ProgressCallback as _ProgressCallback, download as _download } from './download.js';
 import { type Executor, PromisePoolExecutor, inlineExecutor } from './executor.js';
 
 
@@ -144,13 +149,13 @@ function _strip(str: string, chars: string): string {
 
 async function fetch_json<O>(url: string): Promise<O> {
     const res = await fetch(url);
-    if (!res.ok) throw res;
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}`);
     return await res.json() as O;
 }
 
 async function fetch_text(url: string): Promise<string> {
     const res = await fetch(url);
-    if (!res.ok) throw res;
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}`);
     return await res.text();
 }
 
@@ -315,4 +320,232 @@ async function _get_dirents(
     const _dirent_list = (await exec.submit(fetch_json<{dirent_list: Dirent[]}>, api)).dirent_list;
     const dirent_list = await Promise.all(_dirent_list.map(parse_item));
     return new Map(dirent_list.map(f => [f.name, f]));
+}
+
+
+const RESERVED_NAME_RE = /^(?:CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])$/iu;
+
+const RESERVED_CHAR_RE = /[\x00-\x1f"*:<>\?|\/\\]/g;
+
+function sanitize_filename(name: string): string {
+    const name0 = name;
+    if (typeof name !== 'string')
+        throw new TypeError(`name must be string, not ${typeof name}`);
+    if (name.includes('/') || name.includes('\\'))
+        throw new Error(`name cannot contain slash or backslash: ${name0}`);
+    name = name.replace(/[ .]+$/u, '');
+    if (name === '')
+        throw new Error(`unsanitized filename: ${name0}`);
+    const dot = name.indexOf('.');
+    const stem = (dot === -1 ? name : name.slice(0, dot)).replace(/ +$/u, '');
+    if (RESERVED_NAME_RE.test(stem))
+        name = `_${name}`;
+    return name.replace(RESERVED_CHAR_RE, '_');
+}
+
+export type MTimeMode = 'off' | 'reported' | 'derived';
+
+export type ProgressEvent = 'start' | 'progress' | 'end' | 'skip';
+
+export interface ProgressCallback {
+    (root_entry: CloudEntry, file: CloudFile, target: string, event: ProgressEvent, downloaded: number): void;
+    write?: (text: string) => void;
+}
+
+export interface DownloadConfig {
+    workers?: number;
+    if_exists?: 'error' | 'overwrite' | 'skip';
+    filename_sanitizer?: (filename: string) => string;
+    mtime?: MTimeMode;
+    callback?: ProgressCallback;
+    signal?: AbortSignal;
+}
+
+export type DownloadEntryTarget<Entry extends CloudEntry> = {
+    entry: Entry,
+    target: string
+};
+
+export interface DownloadSummary {
+    target: string;
+    files_total: number;
+    bytes_total: number;
+    files_downloaded: number;
+    bytes_downloaded: number;
+    elapsed_ms: number;
+    renamed: DownloadEntryTarget<CloudEntry>[];
+    skipped: DownloadEntryTarget<CloudFile>[];
+    overwritten: DownloadEntryTarget<CloudFile>[];
+}
+
+export async function download(
+    entry: CloudEntry,
+    output_dir: string = '.',
+    {
+        workers = 4,
+        if_exists = 'skip',
+        filename_sanitizer = sanitize_filename,
+        mtime: mtime_mode = 'derived',
+        callback,
+        signal,
+    }: DownloadConfig = {},
+): Promise<DownloadSummary> {
+    if (!Number.isInteger(workers) || workers <= 0)
+        throw new RangeError(`invalid workers: ${workers}`);
+    if (!['error', 'overwrite', 'skip'].includes(if_exists))
+        throw new RangeError(`invalid if_exists: ${if_exists}`);
+    if (!['off', 'reported', 'derived'].includes(mtime_mode))
+        throw new RangeError(`invalid mtime: ${mtime_mode}`);
+
+    const write = callback?.write?.bind(callback);
+
+    const files_total = entry instanceof CloudFile ? 1 : entry.file_count;
+    const bytes_total = entry.size;
+    let files_downloaded = 0;
+    let bytes_downloaded = 0;
+    const t0 = performance.now();
+    const renamed: DownloadEntryTarget<CloudEntry>[] = [];
+    const skipped: DownloadEntryTarget<CloudFile>[] = [];
+    const overwritten: DownloadEntryTarget<CloudFile>[] = [];
+
+    const sanitized_paths = new Map<string, CloudEntry>();
+    function reserve_sanitized_path(path: string, entry: CloudEntry) {
+        const entry0 = sanitized_paths.get(path);
+        if (entry0 === undefined) {
+            sanitized_paths.set(path, entry);
+        } else {
+            if (entry0 !== entry)
+                throw new Error(
+                    'Sanitized filename collision: ' +
+                    `${JSON.stringify(entry)} conflicts with ` +
+                    `${JSON.stringify(entry0)} as ${path}`
+                );
+        }
+    }
+
+    async function dl(file: CloudFile, output_dir: string): Promise<string> {
+        const target_name = filename_sanitizer(file.name);
+        const target = pathJoin(output_dir, target_name);
+        reserve_sanitized_path(target, file);
+        if (target_name !== file.name) {
+            renamed.push({ entry: file, target });
+            write?.(`Renamed: ${target} (from ${file.name})`);
+        }
+        if (existsSync(target)) {
+            if (!(await stat(target)).isFile())
+                throw new Error(`Target exists but is not a file: ${target}`);
+            if (if_exists === 'error')
+                throw new Error(`File already exists: ${target}`);
+            if (if_exists === 'skip') {
+                skipped.push({ entry: file, target });
+                write?.(`Skipped: ${target}`);
+                callback?.(entry, file, target, 'skip', 0);
+                return target;
+            } else if (if_exists === 'overwrite') {
+                overwritten.push({ entry: file, target });
+                write?.(`Overwriting: ${target}`);
+            } else {
+                throw new Error(`Unknown if_exists: ${if_exists}`);
+            }
+        }
+        const url = file.raw_path ?? await file.get_raw_path();
+        const overwrite = if_exists === 'overwrite';
+        const dl_callback: _ProgressCallback = (event, downloaded, total) => {
+            if (event === 'end') {
+                files_downloaded += 1;
+                bytes_downloaded += downloaded;
+            }
+            callback?.(entry, file, target, event, downloaded);
+        };
+        await _download(
+            url, target, {
+                overwrite,
+                callback: dl_callback,
+                signal,
+            }
+        );
+        return target;
+    }
+
+    let target: string;
+    await mkdir(output_dir, { recursive: true });
+    if (entry instanceof CloudFile) {
+        target = await dl(entry, output_dir);
+    } else if (entry instanceof CloudFolder) {
+        const executor = new PromisePoolExecutor(workers);
+        async function dl_folder(folder: CloudFolder, output_dir: string): Promise<string> {
+            const target_name = filename_sanitizer(folder.name);
+            const target = pathJoin(output_dir, target_name);
+            reserve_sanitized_path(target, folder);
+            if (target_name !== folder.name) {
+                renamed.push({ entry: folder, target });
+                write?.(`Renamed: ${target} (from ${folder.name})`);
+            }
+            await mkdir(target, { recursive: true });
+            await Promise.all(Iterator.from(folder).map(f => {
+                if (f instanceof CloudFile) {
+                    return executor.submit(dl, f, target);
+                } else if (f instanceof CloudFolder) {
+                    return dl_folder(f, target);
+                } else {
+                    throw new Error(`Unknown type of entry: ${JSON.stringify(entry)}`);
+                }
+            }));
+            return target;
+        }
+        try {
+            target = await dl_folder(entry, output_dir);
+        } catch (error) {
+            void executor.shutdown(true);
+            write?.(
+                `Download interrupted by ${error}.\n` +
+                'Pending downloads have been cancelled.\n' +
+                'Waiting for running downloads to finish.\n'
+            )
+            throw error;
+        } finally {
+            await executor.shutdown();
+        }
+    } else {
+        throw new Error(`Unknown type of entry: ${JSON.stringify(entry)}`);
+    }
+
+    if (mtime_mode !== 'off') {
+        write?.('Restoring modification times...');
+        const cache = new Map<CloudEntry, Date | null>();
+        function get_mtime(entry: CloudEntry): Date | null {
+            if (entry.last_modified !== null)
+                return entry.last_modified;
+            let mtime = cache.get(entry);
+            if (mtime !== undefined)
+                return mtime;
+            mtime = null;
+            if (mtime_mode === 'derived' && entry instanceof CloudFolder) {
+                for (const f of entry) {
+                    const mtime1 = get_mtime(f);
+                    if (mtime1 !== null && (mtime === null || mtime < mtime1))
+                        mtime = mtime1;
+                }
+            }
+            cache.set(entry, mtime);
+            return mtime;
+        }
+
+        await Promise.all(Iterator.from(sanitized_paths).map(async ([target, entry]) => {
+            const mtime = get_mtime(entry);
+            if (mtime !== null) {
+                const atime = (await stat(target)).atime;
+                await utimes(target, atime, mtime);
+            }
+        }));
+    }
+
+    const t1 = performance.now();
+    return {
+        target,
+        files_total, bytes_total,
+        files_downloaded, bytes_downloaded,
+        elapsed_ms: t1 - t0,
+        renamed, skipped, overwritten,
+    }
 }
