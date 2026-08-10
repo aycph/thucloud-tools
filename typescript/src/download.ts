@@ -1,8 +1,8 @@
-import { randomUUID } from 'crypto';
-import { createWriteStream, existsSync } from 'fs';
-import { link, open, rename, unlink } from 'fs/promises';
-import { basename, dirname, join as pathJoin } from 'path';
-import { pipeline } from 'stream/promises';
+import { randomUUID } from 'node:crypto';
+import { createWriteStream, existsSync } from 'node:fs';
+import { link, open, rename, unlink } from 'node:fs/promises';
+import { basename, dirname, join as pathJoin } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 
 
 const renameNoReplace: typeof rename = async (oldPath, newPath) => {
