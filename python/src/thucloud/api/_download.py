@@ -182,8 +182,8 @@ def download(
                 exc.add_note(f'while downloading {file!r} to {target}')
             raise
 
+    os.makedirs(output_dir, exist_ok=True)
     if isinstance(entry, File):
-        os.makedirs(output_dir, exist_ok=True)
         target = dl(entry, output_dir)
     else:
         executor = SessionThreadPoolExecutor(max_workers=workers)
@@ -196,7 +196,7 @@ def download(
                 rename_list.append(DownloadEntryTarget(folder, target))
                 if write is not None:
                     write(f'Renamed: {target} (from {folder.name!r})')
-            target.mkdir(parents=True, exist_ok=True)
+            target.mkdir(exist_ok=True)
             for f in folder:
                 if isinstance(f, File):
                     futures.add(executor.submit(dl, f, target))
