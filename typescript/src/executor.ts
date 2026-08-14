@@ -12,17 +12,22 @@ type Task<Args extends unknown[] = any[], T = any> = {
 export class CancelledError extends Error {}
 
 export class PromisePoolExecutor implements Executor {
-    private readonly queue = new Array<Task>();
-    private readonly workers = new Map<number, Promise<void>>();
-    private id = 0;
-    private closed = false;
+    private readonly queue: Task[] = [];
+    private numWorkers: number = 0;
+    private closed: boolean = false;
+    private idle: Promise<void> = Promise.resolve();
+    private resolveIdle!: () => void;
 
-    constructor(private readonly max_workers: number) {
-        if (!Number.isInteger(max_workers) || max_workers <= 0)
-            throw new RangeError('max_workers must be a positive integer');
+    constructor(private readonly maxWorkers: number) {
+        if (!Number.isInteger(maxWorkers) || maxWorkers <= 0)
+            throw new RangeError('maxWorkers must be a positive integer');
     }
 
-    private async schedule(id: number) {
+    private async schedule() {
+        if (this.numWorkers >= this.maxWorkers)
+            return;
+        if (this.numWorkers++ === 0)
+            this.idle = new Promise(resolve => this.resolveIdle = resolve);
         do {
             const {fn, args, resolve, reject} = this.queue.shift()!;
             try {
@@ -31,7 +36,8 @@ export class PromisePoolExecutor implements Executor {
                 reject(reason);
             }
         } while (this.queue.length);
-        this.workers.delete(id);
+        if (--this.numWorkers === 0)
+            this.resolveIdle();
     }
 
     submit<Args extends unknown[], T>(fn: (...args: Args) => Promise<T>, ...args: Args): Promise<T> {
@@ -39,22 +45,19 @@ export class PromisePoolExecutor implements Executor {
             throw new Error('cannot submit tasks after shutdown');
         return new Promise<T>((resolve, reject) => {
             this.queue.push({fn, args, resolve, reject});
-            if (this.workers.size >= this.max_workers)
-                return;
-            const id = this.id++;
-            const worker = this.schedule(id);
-            this.workers.set(id, worker);
+            void this.schedule();
         });
     }
 
     shutdown(cancelPending: boolean = false): Promise<void> {
         this.closed = true;
         if (cancelPending) {
+            const reason = new CancelledError('executor shutdown');
             for (const { reject } of this.queue)
-                reject(new CancelledError('executor shutdown'));
+                reject(reason);
             this.queue.length = 0;
         }
-        return Promise.all(this.workers.values()).then(() => {});
+        return this.idle;
     }
 }
 
