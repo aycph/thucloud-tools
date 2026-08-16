@@ -3,7 +3,6 @@ import signal
 import sys
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Literal
 
 
 def pos_int(value: str) -> int:
@@ -93,17 +92,17 @@ def _main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    from .api import IfExists, MTimeMode, TqdmProgressCallback, download, parse
+    from .api.utils import SessionThreadPoolExecutor
+
     url: str = args.share_link
     output_dir: Path = args.output_dir.expanduser()
     workers: int = args.workers
     parse_workers: int | None = args.parse_workers
-    if_exists: Literal['error', 'overwrite', 'skip'] = args.if_exists
-    mtime: Literal['off', 'reported', 'derived'] = args.mtime
+    if_exists: IfExists = args.if_exists
+    mtime: MTimeMode = args.mtime
     quiet = args.quiet
     use_progress: bool = args.progress and not quiet
-
-    from .api import TqdmProgressCallback, download, parse
-    from .api.utils import SessionThreadPoolExecutor
 
     progress_ctx = TqdmProgressCallback() if use_progress else nullcontext(None)
     with progress_ctx as callback:

@@ -18,7 +18,10 @@ from .utils import (
 )
 
 __all__ = [
+    'DownloadEntryTarget',
     'DownloadSummary',
+    'IfExists',
+    'MTimeMode',
     'ProgressEvent',
     'ProgressCallback',
     'download',
@@ -45,6 +48,10 @@ class DownloadSummary:
     skipped: tuple[DownloadEntryTarget[File], ...] = field(repr=False)
     overwritten: tuple[DownloadEntryTarget[File], ...] = field(repr=False)
 
+type IfExists = Literal['error', 'overwrite', 'skip']
+
+type MTimeMode = Literal['off', 'reported', 'derived']
+
 type ProgressEvent = Literal['start', 'progress', 'end', 'skip']
 
 class ProgressCallback(Protocol):
@@ -66,9 +73,9 @@ def download(
     output_dir: str | os.PathLike[str] = '.',
     *,
     workers: int = 4,
-    if_exists: Literal['error', 'overwrite', 'skip'] = 'skip',
+    if_exists: IfExists = 'skip',
     filename_sanitizer: Callable[[str], str] = sanitize_filename,
-    mtime_mode: Literal['off', 'reported', 'derived'] = 'derived',
+    mtime_mode: MTimeMode = 'derived',
     timeout: float | tuple[float, float] | None = DEFAULT_TIMEOUT,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     callback: ProgressCallback | None = None,
