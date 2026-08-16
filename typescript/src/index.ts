@@ -46,7 +46,7 @@ export class CloudFile implements _CloudEntry {
     async get_raw_path(exec: Executor = inlineExecutor): Promise<string> {
         const file = await _parse_file(`https://cloud.tsinghua.edu.cn/d/${this.token}/files/?p=${encodeURIComponent(this.path)}`, exec);
         const raw_path = file.raw_path;
-        assert(raw_path != null, 'Parsed file did not provide a raw url');
+        assert(raw_path != null, 'Parsed file did not provide a raw URL');
         return this._raw_path = raw_path;
     }
 }
@@ -121,14 +121,14 @@ export async function parse(url: string, max_workers: number | null = 10): Promi
     const exec = max_workers === null ? inlineExecutor : new PromisePoolExecutor(max_workers);
     const parsed = new URL(url);
     if (parsed.host !== 'cloud.tsinghua.edu.cn')
-        throw new Error(`Invalid host: ${parsed.host}`);
+        throw new Error(`Invalid host: ${JSON.stringify(parsed.host)}`);
     const paths = _strip(parsed.pathname, '/').split('/');
     if (paths[1] === undefined || !/^[0-9a-f]{20}$/.test(paths[1]))
-        throw new Error(`Unrecognized url: ${url}`);
+        throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
     if (paths[0] === 'd') {
         if (paths.length >= 3) {
             if (paths.length > 3 || paths[2] !== 'files')
-                throw new Error(`Unrecognized url: ${url}`);
+                throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
             return _parse_file(url, exec);
         } else {
             return _parse_folder(url, exec);
@@ -136,7 +136,7 @@ export async function parse(url: string, max_workers: number | null = 10): Promi
     } else if (paths[0] === 'f') {
         return _parse_file(url, exec);
     } else {
-        throw new Error(`Unrecognized url: ${url}`);
+        throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
     }
 }
 
@@ -149,28 +149,30 @@ function _strip(str: string, chars: string): string {
 
 async function fetch_json<O>(url: string): Promise<O> {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}`);
+    if (!res.ok)
+        throw new Error(`HTTP ${res.status} ${res.statusText}: ${JSON.stringify(url)}`);
     return await res.json() as O;
 }
 
 async function fetch_text(url: string): Promise<string> {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}: ${url}`);
+    if (!res.ok)
+        throw new Error(`HTTP ${res.status} ${res.statusText}: ${JSON.stringify(url)}`);
     return await res.text();
 }
 
 type _PageOptions = {
-    filePath: string,
-    sharedToken: string,
-    fileName: string,
-    fileSize: number,
-    rawPath: string,
-    canDownload: boolean,
+    filePath: string;
+    sharedToken: string;
+    fileName: string;
+    fileSize: number;
+    rawPath: string;
+    canDownload: boolean;
 } | {
-    dirName: string,
-    relativePath: string,
-    token: string,
-    canDownload: boolean,
+    dirName: string;
+    relativePath: string;
+    token: string;
+    canDownload: boolean;
 };
 
 function _extract_page_options(html: string): _PageOptions | null {
@@ -186,12 +188,12 @@ async function _parse_file(url: string, exec: Executor): Promise<CloudFile> {
     if (info === null) {
         const token = url.match(/\/([0-9a-f]{20})\//)?.[1];
         if (token === undefined)
-            throw new Error(`Unrecognized url: ${url}`);
+            throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
         const path = new URL(url).searchParams.get('p');
         return await _parse_wopi_file(html, token, path, exec);
     }
     if (!('fileName' in info))
-        throw new Error(`Unrecognized html: ${url}`);
+        throw new Error(`Unrecognized HTML: ${JSON.stringify(url)}`);
     return new CloudFile(
         info.sharedToken,
         info.filePath,
@@ -205,9 +207,9 @@ async function _parse_file(url: string, exec: Executor): Promise<CloudFile> {
 }
 
 type WOPIInfo = {
-    BaseFileName: string,
-    Size: number,
-    LastModifiedTime: string,
+    BaseFileName: string;
+    Size: number;
+    LastModifiedTime: string;
 };
 
 async function _parse_wopi_file(
@@ -218,13 +220,13 @@ async function _parse_wopi_file(
 ): Promise<CloudFile> {
     const action = html.match(/<form id="office_form" name="office_form" target="office_frame" action="(.*?)" method="post">/)?.[1];
     if (action === undefined)
-        throw new Error('Unexpected html: office_form not found');
+        throw new Error('Unexpected HTML: office_form not found');
     const wopi = new URL(action.replaceAll('&amp;', '&')).searchParams.get('WOPISrc');
     if (wopi === null)
-        throw new Error('Unexpected html: WOPISrc not found');
+        throw new Error('Unexpected HTML: WOPISrc not found');
     const access_token = html.match(/<input name="access_token" value="([0-9a-f]{32})" type="hidden"\/>/)?.[1];
     if (access_token === undefined)
-        throw new Error('Unexpected html: access_token not found');
+        throw new Error('Unexpected HTML: access_token not found');
 
     const info_url = `${wopi}?access_token=${access_token}`;
     const raw_path = `${wopi}/contents?access_token=${access_token}`;
@@ -245,7 +247,7 @@ async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> 
     const html = await exec.submit(fetch_text, url);
     const info = _extract_page_options(html);
     if (info === null || !('dirName' in info))
-        throw new Error(`Unrecognized html: ${url}`);
+        throw new Error(`Unrecognized HTML: ${JSON.stringify(url)}`);
 
     const token = info.token;
     const can_download = info.canDownload;
@@ -267,17 +269,17 @@ async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> 
 }
 
 type Dirent = {
-    folder_name: string,
-    folder_path: string,
-    is_dir: true,
-    last_modified: string,
-    size: 0,
+    folder_name: string;
+    folder_path: string;
+    is_dir: true;
+    last_modified: string;
+    size: 0;
 } | {
-    file_name: string,
-    file_path: string,
-    is_dir: false,
-    last_modified: string,
-    size: number,
+    file_name: string;
+    file_path: string;
+    is_dir: false;
+    last_modified: string;
+    size: number;
 };
 
 async function _get_dirents(
@@ -317,7 +319,7 @@ async function _get_dirents(
     }
 
     const api = `https://cloud.tsinghua.edu.cn/api/v2.1/share-links/${token}/dirents/?path=${encodeURIComponent(path)}`;
-    const _dirent_list = (await exec.submit(fetch_json<{dirent_list: Dirent[]}>, api)).dirent_list;
+    const _dirent_list = (await exec.submit(fetch_json<{ dirent_list: Dirent[] }>, api)).dirent_list;
     const dirent_list = await Promise.all(_dirent_list.map(parse_item));
     return new Map(dirent_list.map(f => [f.name, f]));
 }
@@ -330,18 +332,20 @@ const RESERVED_CHAR_RE = /[\x00-\x1f"*:<>\?|\/\\]/g;
 function sanitize_filename(name: string): string {
     const name0 = name;
     if (typeof name !== 'string')
-        throw new TypeError(`name must be string, not ${typeof name}`);
+        throw new TypeError(`Invalid name: expected a string, got ${typeof name}`);
     if (name.includes('/') || name.includes('\\'))
-        throw new Error(`name cannot contain slash or backslash: ${name0}`);
+        throw new Error(`Invalid name: cannot contain slash or backslash: ${JSON.stringify(name0)}`);
     name = name.replace(/[ .]+$/u, '');
     if (name === '')
-        throw new Error(`unsanitized filename: ${name0}`);
+        throw new Error(`Filename is empty after sanitization: ${JSON.stringify(name0)}`);
     const dot = name.indexOf('.');
     const stem = (dot === -1 ? name : name.slice(0, dot)).replace(/ +$/u, '');
     if (RESERVED_NAME_RE.test(stem))
         name = `_${name}`;
     return name.replace(RESERVED_CHAR_RE, '_');
 }
+
+export type IfExists = 'error' | 'overwrite' | 'skip';
 
 export type MTimeMode = 'off' | 'reported' | 'derived';
 
@@ -354,16 +358,16 @@ export interface ProgressCallback {
 
 export interface DownloadConfig {
     workers?: number;
-    if_exists?: 'error' | 'overwrite' | 'skip';
+    if_exists?: IfExists;
     filename_sanitizer?: (filename: string) => string;
-    mtime?: MTimeMode;
+    mtime_mode?: MTimeMode;
     callback?: ProgressCallback;
     signal?: AbortSignal;
 }
 
 export type DownloadEntryTarget<Entry extends CloudEntry> = {
-    entry: Entry,
-    target: string
+    entry: Entry;
+    target: string;
 };
 
 export interface DownloadSummary {
@@ -385,17 +389,17 @@ export async function download(
         workers = 4,
         if_exists = 'skip',
         filename_sanitizer = sanitize_filename,
-        mtime: mtime_mode = 'derived',
+        mtime_mode = 'derived',
         callback,
         signal,
     }: DownloadConfig = {},
 ): Promise<DownloadSummary> {
     if (!Number.isInteger(workers) || workers <= 0)
-        throw new RangeError(`invalid workers: ${workers}`);
+        throw new RangeError(`Invalid workers: ${workers}`);
     if (!['error', 'overwrite', 'skip'].includes(if_exists))
-        throw new RangeError(`invalid if_exists: ${if_exists}`);
+        throw new RangeError(`Invalid if_exists: ${JSON.stringify(if_exists)}`);
     if (!['off', 'reported', 'derived'].includes(mtime_mode))
-        throw new RangeError(`invalid mtime: ${mtime_mode}`);
+        throw new RangeError(`Invalid mtime_mode: ${JSON.stringify(mtime_mode)}`);
 
     const write = callback?.write?.bind(callback);
 
@@ -418,7 +422,7 @@ export async function download(
                 throw new Error(
                     'Sanitized filename collision: ' +
                     `${JSON.stringify(entry)} conflicts with ` +
-                    `${JSON.stringify(entry0)} as ${path}`
+                    `${JSON.stringify(entry0)} at ${JSON.stringify(path)}`,
                 );
         }
     }
@@ -429,23 +433,23 @@ export async function download(
         reserve_sanitized_path(target, file);
         if (target_name !== file.name) {
             renamed.push({ entry: file, target });
-            write?.(`Renamed: ${target} (from ${file.name})`);
+            write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(file.name)})`);
         }
         if (existsSync(target)) {
             if (!(await stat(target)).isFile())
-                throw new Error(`Target exists but is not a file: ${target}`);
+                throw new Error(`Target exists but is not a file: ${JSON.stringify(target)}`);
             if (if_exists === 'error')
-                throw new Error(`File already exists: ${target}`);
+                throw new Error(`File already exists: ${JSON.stringify(target)}`);
             if (if_exists === 'skip') {
                 skipped.push({ entry: file, target });
-                write?.(`Skipped: ${target}`);
+                write?.(`Skipped: ${JSON.stringify(target)}`);
                 callback?.(entry, file, target, 'skip', 0);
                 return target;
             } else if (if_exists === 'overwrite') {
                 overwritten.push({ entry: file, target });
-                write?.(`Overwriting: ${target}`);
+                write?.(`Overwriting: ${JSON.stringify(target)}`);
             } else {
-                throw new Error(`Unknown if_exists: ${if_exists}`);
+                throw new Error(`Unknown if_exists: ${JSON.stringify(if_exists)}`);
             }
         }
         const url = file.raw_path ?? await file.get_raw_path();
@@ -457,13 +461,11 @@ export async function download(
             }
             callback?.(entry, file, target, event, downloaded);
         };
-        await _download(
-            url, target, {
-                overwrite,
-                callback: dl_callback,
-                signal,
-            }
-        );
+        await _download(url, target, {
+            overwrite,
+            callback: dl_callback,
+            signal,
+        });
         return target;
     }
 
@@ -479,7 +481,7 @@ export async function download(
             reserve_sanitized_path(target, folder);
             if (target_name !== folder.name) {
                 renamed.push({ entry: folder, target });
-                write?.(`Renamed: ${target} (from ${folder.name})`);
+                write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(folder.name)})`);
             }
             await mkdir(target, { recursive: true });
             await Promise.all(Iterator.from(folder).map(f => {
@@ -488,7 +490,7 @@ export async function download(
                 } else if (f instanceof CloudFolder) {
                     return dl_folder(f, target);
                 } else {
-                    throw new Error(`Unknown type of entry: ${JSON.stringify(entry)}`);
+                    throw new Error(`Unknown entry type: ${JSON.stringify(f)}`);
                 }
             }));
             return target;
@@ -497,17 +499,18 @@ export async function download(
             target = await dl_folder(entry, output_dir);
         } catch (error) {
             void executor.shutdown(true);
+            const errMessage = error instanceof Error ? error.message : String(error);
             write?.(
-                `Download interrupted by ${error}.\n` +
+                `Download interrupted: ${errMessage}\n` +
                 'Pending downloads have been cancelled.\n' +
-                'Waiting for running downloads to finish.\n'
-            )
+                'Waiting for running downloads to finish.\n',
+            );
             throw error;
         } finally {
             await executor.shutdown();
         }
     } else {
-        throw new Error(`Unknown type of entry: ${JSON.stringify(entry)}`);
+        throw new Error(`Unknown entry type: ${JSON.stringify(entry)}`);
     }
 
     if (mtime_mode !== 'off') {
@@ -547,5 +550,5 @@ export async function download(
         files_downloaded, bytes_downloaded,
         elapsed_ms: t1 - t0,
         renamed, skipped, overwritten,
-    }
+    };
 }

@@ -31,8 +31,8 @@ const TMP_MAX = 20;
 
 // Refactored from tempfile.py:_mkstemp_inner
 async function mktemp_ofstream(path: string): Promise<{
-    tempPath: string,
-    stream: ReturnType<typeof createWriteStream>,
+    tempPath: string;
+    stream: ReturnType<typeof createWriteStream>;
 }> {
     const dir = dirname(path);
     const name = basename(path);
@@ -45,11 +45,12 @@ async function mktemp_ofstream(path: string): Promise<{
                 stream: handle.createWriteStream(),
             };
         } catch (error) {
-            if (isFileExistsError(error)) continue;
+            if (isFileExistsError(error))
+                continue;
             throw error;
         }
     }
-    throw new ErrnoError('EEXIST', 'No usable temporary file name found');
+    throw new ErrnoError('EEXIST', 'No usable temporary filename found');
 }
 
 function get_content_length(headers: Headers): number | null {
@@ -62,10 +63,8 @@ function get_content_length(headers: Headers): number | null {
     if (!value)
         return null;
     const length = Number(value);
-    if (!Number.isSafeInteger(length) || length < 0) {
-        console.warn(`Invalid Content-Length: ${value}`);
+    if (!Number.isSafeInteger(length) || length < 0)
         return null;
-    }
     return length;
 }
 
@@ -93,14 +92,14 @@ export async function download(
     }: DownloadConfig = {},
 ): Promise<void> {
     if (!overwrite && existsSync(path))
-        throw new ErrnoError('EEXIST', `File already exists: ${path}`);
+        throw new ErrnoError('EEXIST', `File already exists: ${JSON.stringify(path)}`);
 
     const res = await fetch(url, { headers, signal });
     if (!res.ok)
-        throw res;
+        throw new Error(`HTTP ${res.status} ${res.statusText}: ${JSON.stringify(url)}`);
     const body = res.body;
     if (body === null)
-        throw new Error(`Empty body: ${url}`);
+        throw new Error(`Empty response body: ${JSON.stringify(url)}`);
 
     const total = get_content_length(res.headers);
     let downloaded = 0;
@@ -128,7 +127,7 @@ export async function download(
         } catch (error) {
             if (isFileExistsError(error)) {
                 await renameNoReplace(tempPath, tempPath.slice(0, -TEMP_SUFFIX.length));
-                throw new ErrnoError('EEXIST', `File already exists: ${path}`);
+                throw new ErrnoError('EEXIST', `File already exists: ${JSON.stringify(path)}`);
             } else {
                 throw error;
             }

@@ -3,10 +3,10 @@ export interface Executor {
 }
 
 type Task<Args extends unknown[] = any[], T = any> = {
-    fn: (...args: Args) => Promise<T>,
-    args: Args,
-    resolve: (value: T) => void,
-    reject: (reason?: any) => void,
+    fn: (...args: Args) => Promise<T>;
+    args: Args;
+    resolve: (value: T) => void;
+    reject: (reason?: any) => void;
 };
 
 export class CancelledError extends Error {}
@@ -20,7 +20,7 @@ export class PromisePoolExecutor implements Executor {
 
     constructor(private readonly maxWorkers: number) {
         if (!Number.isInteger(maxWorkers) || maxWorkers <= 0)
-            throw new RangeError('maxWorkers must be a positive integer');
+            throw new RangeError('Invalid maxWorkers: expected a positive integer');
     }
 
     private async schedule() {
@@ -29,7 +29,7 @@ export class PromisePoolExecutor implements Executor {
         if (this.numWorkers++ === 0)
             this.idle = new Promise(resolve => this.resolveIdle = resolve);
         do {
-            const {fn, args, resolve, reject} = this.queue.shift()!;
+            const { fn, args, resolve, reject } = this.queue.shift()!;
             try {
                 resolve(await fn(...args));
             } catch (reason) {
@@ -42,9 +42,9 @@ export class PromisePoolExecutor implements Executor {
 
     submit<Args extends unknown[], T>(fn: (...args: Args) => Promise<T>, ...args: Args): Promise<T> {
         if (this.closed)
-            throw new Error('cannot submit tasks after shutdown');
+            throw new Error('Cannot submit tasks after shutdown');
         return new Promise<T>((resolve, reject) => {
-            this.queue.push({fn, args, resolve, reject});
+            this.queue.push({ fn, args, resolve, reject });
             void this.schedule();
         });
     }
@@ -52,7 +52,7 @@ export class PromisePoolExecutor implements Executor {
     shutdown(cancelPending: boolean = false): Promise<void> {
         this.closed = true;
         if (cancelPending) {
-            const reason = new CancelledError('executor shutdown');
+            const reason = new CancelledError('Executor shut down');
             for (const { reject } of this.queue)
                 reject(reason);
             this.queue.length = 0;
