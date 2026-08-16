@@ -49,17 +49,17 @@ def _extract_page_options(html: str) -> dict[str, Any] | None:
 def _parse_wopi_file(html: str, /, token: str, path: str | None, *, get: UrlGetter) -> File:
     m_action = re.search(r'<form id="office_form" name="office_form" target="office_frame" action="(.*?)" method="post">', html)
     if m_action is None:
-        raise ValueError('Unexpected html: office_form not found')
+        raise ValueError('unexpected HTML: `office_form` not found')
     action = m_action.group(1)
     wopis = parse_qs(urlparse(unescape(action)).query).get('WOPISrc')
     if wopis is None:
-        raise ValueError('Unexpected html: WOPISrc not found')
+        raise ValueError('unexpected HTML: `WOPISrc` not found')
     wopi, = wopis
     wopi = unquote(wopi)
 
     m_token = re.search(r'<input name="access_token" value="([0-9a-f]{32})" type="hidden"/>', html)
     if m_token is None:
-        raise ValueError('Unexpected html: access_token not found')
+        raise ValueError('unexpected HTML: `access_token` not found')
     access_token = m_token.group(1)
 
     info_url = f'{wopi}?access_token={access_token}'
@@ -85,7 +85,7 @@ def _parse_file(url: str, /, *, get: UrlGetter) -> File:
         # 说明可能是 office 文件
         m_token = re.search(r'/([0-9a-f]{20})/', url)
         if m_token is None:
-            raise ValueError(f'Unrecognized url: {url}')
+            raise ValueError(f'unrecognized URL: {url!r}')
         token = m_token.group(1)
         # 尝试获取路径，如果来自于目录共享链接将提供 path
         path = parse_qs(urlparse(url).query).get('p')
@@ -164,7 +164,7 @@ def _parse_folder(url: str, /, *, get: UrlGetter, executor: Executor | None) -> 
     html = get(url).text
     info = _extract_page_options(html)
     if info is None:
-        raise ValueError(f'Unrecognized HTML: {url}')
+        raise ValueError(f'unrecognized HTML from {url!r}')
     token = info['token']
     can_download = info['canDownload']
     root = info['dirName']
@@ -193,18 +193,18 @@ def parse(
 ) -> File | Folder:
     parsed = urlparse(url)
     if parsed.netloc != 'cloud.tsinghua.edu.cn':
-        raise ValueError(f'Invalid netloc: {parsed.netloc}')
+        raise ValueError(f'invalid `netloc`: {parsed.netloc!r}')
     paths = parsed.path.strip('/').split('/')
     if len(paths) < 2 or re.match('[0-9a-f]{20}$', paths[1]) is None:
-        raise ValueError(f'Unrecognized url: {url}')
+        raise ValueError(f'unrecognized URL: {url!r}')
     if paths[0] == 'd':
         if len(paths) >= 3:
             if len(paths) > 3 or paths[2] != 'files':
-                raise ValueError(f'Unrecognized url: {url}')
+                raise ValueError(f'unrecognized URL: {url!r}')
             return _parse_file(url, get=get)
         else:
             return _parse_folder(url, get=get, executor=executor)
     elif paths[0] == 'f':
         return _parse_file(url, get=get)
     else:
-        raise ValueError(f'Unrecognized url: {url}')
+        raise ValueError(f'unrecognized URL: {url!r}')

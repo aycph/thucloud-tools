@@ -150,7 +150,7 @@ class TqdmProgressCallback(ProgressCallback):
         if isinstance(self._root, File):
             if file != root_entry:
                 raise ValueError(
-                    '`file` must be `root_entry` when `root_entry` is `File`'
+                    '`file` must equal `root_entry` when `root_entry` is a `File`: '
                     f'{file=}, {root_entry=}'
                 )
             match event:
@@ -240,7 +240,7 @@ class TqdmProgressCallback(ProgressCallback):
     def _update_postfix(self, refresh: bool = True):
         total_bar = self._total_bar
         if total_bar is None:
-            raise RuntimeError('_update_postfix called before _total_bar created')
+            raise RuntimeError('`_update_postfix()` called before `self._total_bar` is created')
         total_bar.set_postfix_str(f'files:{self._files_done}/{self._files_cnt}', refresh=refresh)
 
     @contextmanager
@@ -248,10 +248,7 @@ class TqdmProgressCallback(ProgressCallback):
         # 使用局部变量 _fetch_dirent_list 来确保恢复时
         # 不受可能的 self._origin_fetch_dirent_list 被修改影响
         if hasattr(self, '_origin_fetch_dirent_list'):
-            raise RuntimeError(
-                'TqdmProgressCallback.hack_parse() is not reentrant; '
-                'do not enter it more than once with the same callback instance'
-            )
+            raise RuntimeError('`TqdmProgressCallback.hack_parse()` is not reentrant')
         self._origin_fetch_dirent_list = _fetch_dirent_list = _parser._fetch_dirent_list
         _parser._fetch_dirent_list = self._fetch_dirent_list
         try:

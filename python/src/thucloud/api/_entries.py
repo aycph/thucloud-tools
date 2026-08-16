@@ -60,7 +60,7 @@ class File(_Entry):
         from ._parser import _parse_file # 避免循环导入
         file = _parse_file(f'https://cloud.tsinghua.edu.cn/d/{self.token}/files/?p={quote(self.path)}', get=get)
         raw_path = file.raw_path
-        assert raw_path is not None, '_parse_file should always create a File with raw_path'
+        assert raw_path is not None, '`_parse_file()` should always create a `File` with `raw_path`'
         object.__setattr__(self, '_raw_path', raw_path)
         return raw_path
 

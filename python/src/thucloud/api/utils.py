@@ -99,12 +99,12 @@ class CachedProperty[O, T]:
     def __set_name__(self, owner: type[O], name: str) -> None:
         if self.attrname is not None and self.attrname != name:
             raise TypeError(
-                f'Cannot assign a CachedProperty to two different names: '
+                f'cannot assign a `CachedProperty` to two different names: '
                 f'{self.attrname!r} and {name!r}'
             )
         if self.slotname == name:
             raise TypeError(
-                f'CachedProperty {name!r} cannot use itself as the cache slot'
+                f'`CachedProperty` {name!r} cannot use itself as the cache slot'
             )
         self.attrname = name
         if self.slotname is None:
@@ -119,7 +119,7 @@ class CachedProperty[O, T]:
             return self
         if self.slotname is None:
             raise TypeError(
-                'Cannot use CachedProperty without assigning a slot name'
+                'cannot use `CachedProperty` without assigning a slot name'
             )
         try:
             return object.__getattribute__(obj, self.slotname)
@@ -129,33 +129,33 @@ class CachedProperty[O, T]:
                 object.__setattr__(obj, self.slotname, value)
             except AttributeError as exc:
                 raise TypeError(
-                    f'Cannot cache {self.attrname!r} on '
-                    f'{type(obj).__name__!r} object: '
-                    f'missing slot {self.slotname!r} and no writable __dict__'
+                    f'cannot cache {self.attrname!r} on '
+                    f'`{type(obj).__name__}` object: '
+                    f'missing slot {self.slotname!r} and no writable `__dict__`'
                 ) from exc
             return value
 
     def __set__(self, obj: O, value: T) -> None:
         if self.readonly:
             raise AttributeError(
-                f'CachedProperty {self.attrname!r} of {type(obj).__name__!r} '
-                'object is readonly'
+                f'`CachedProperty` {self.attrname!r} of `{type(obj).__name__}` '
+                'object is read-only'
             )
         if self.slotname is None:
             raise TypeError(
-                'Cannot use CachedProperty without assigning a slot name'
+                'cannot use `CachedProperty` without assigning a slot name'
             )
         object.__setattr__(obj, self.slotname, value)
 
     def __delete__(self, obj: O) -> None:
         if self.readonly:
             raise AttributeError(
-                f'CachedProperty {self.attrname!r} of {type(obj).__name__!r} '
-                'object is readonly'
+                f'`CachedProperty` {self.attrname!r} of `{type(obj).__name__}` '
+                'object is read-only'
             )
         if self.slotname is None:
             raise TypeError(
-                'Cannot use CachedProperty without assigning a slot name'
+                'cannot use `CachedProperty` without assigning a slot name'
             )
         object.__delattr__(obj, self.slotname)
 
@@ -217,7 +217,7 @@ def _get_content_length(response: requests.Response) -> int | None:
         return length
     except ValueError:
         warnings.warn(
-            f'Invalid Content-Length from {response.url}: {value!r}',
+            f'invalid Content-Length from {response.url!r}: {value!r}',
             RuntimeWarning,
             stacklevel=2,
         )
@@ -249,11 +249,11 @@ def download(
     callback: ProgressCallback | None = None,
 ) -> Path:
     if chunk_size <= 0:
-        raise ValueError(f'Invalid chunk_size: {chunk_size}')
+        raise ValueError(f'invalid `chunk_size`: {chunk_size!r}')
 
     path = Path(path)
     if not overwrite and path.exists():
-        raise FileExistsError(f'File already exists: {path}')
+        raise FileExistsError(f'file already exists: {path}')
 
     client = session or requests
     response = client.get(url, headers=headers, timeout=timeout, stream=True)
@@ -287,7 +287,7 @@ def download(
                 # 若目标已存在则移除临时后缀，表示文件已被完整下载
                 _rename(tmp_path, tmp_path.removesuffix('.tmp'))
                 raise FileExistsError(
-                    f'File already exists: {path}') from None
+                    f'file already exists: {path}') from None
 
         # 汇报完成
         if callback is not None:
@@ -351,7 +351,7 @@ class SessionThreadPoolExecutor(ThreadPoolExecutor):
     @property
     def thread_session(self) -> requests.Session:
         if self._shutdown:
-            raise RuntimeError('cannot use thread_session after shutdown')
+            raise RuntimeError('cannot use `thread_session` after shutdown')
         try:
             return self._local.session
         except AttributeError:
@@ -420,12 +420,12 @@ _reserved_char_table = {ord(c): '_' for c in _reserved_chars}
 def sanitize_filename(name: str) -> str:
     name0 = name
     if not isinstance(name, str):
-        raise TypeError(f'name must be str, not {type(name)!r}')
+        raise TypeError(f'`name` must be `str`, not `{type(name).__name__}`')
     if '/' in name or '\\' in name:
-        raise ValueError(f'name cannot contain slash or backslash: {name0!r}')
+        raise ValueError(f'`name` cannot contain slash or backslash: {name0!r}')
     name = name.rstrip(' .')
-    if name in {'', '.', '..'}:
-        raise ValueError(f'unsanitized filename: {name0!r}')
+    if not name: # 已不可能为 '.' 或 '..'
+        raise ValueError(f'empty filename after sanitization: {name0!r}')
     if name.partition('.')[0].rstrip(' ').upper() in _reserved_names:
         name = '_' + name
     return name.translate(_reserved_char_table)

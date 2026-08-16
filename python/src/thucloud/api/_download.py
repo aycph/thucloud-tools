@@ -14,7 +14,7 @@ import requests
 from ._entries import File, Folder
 from .utils import (
     DEFAULT_CHUNK_SIZE, DEFAULT_TIMEOUT, SessionThreadPoolExecutor,
-    download as download_url, sanitize_filename,
+    download as _download, sanitize_filename,
 )
 
 __all__ = [
@@ -68,7 +68,7 @@ def download(
     workers: int = 4,
     if_exists: Literal['error', 'overwrite', 'skip'] = 'skip',
     filename_sanitizer: Callable[[str], str] = sanitize_filename,
-    mtime: Literal['off', 'reported', 'derived'] = 'derived',
+    mtime_mode: Literal['off', 'reported', 'derived'] = 'derived',
     timeout: float | tuple[float, float] | None = DEFAULT_TIMEOUT,
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     callback: ProgressCallback | None = None,
@@ -89,12 +89,12 @@ def download(
     同一 output_dir 不应被多个 download() 调用并发写入；
     如需这样做，调用方应自行按 output_dir 或 target path 加锁。
     """
-    if type(workers) is not int or workers <= 0:
-        raise ValueError(f'invalid workers: {workers!r}')
+    if workers <= 0:
+        raise ValueError(f'`workers` must be positive, got {workers!r}')
     if if_exists not in {'error', 'overwrite', 'skip'}:
-        raise ValueError(f'invalid if_exists: {if_exists!r}')
-    if mtime not in {'off', 'reported', 'derived'}:
-        raise ValueError(f'invalid mtime: {mtime!r}')
+        raise ValueError(f'invalid `if_exists`: {if_exists!r}')
+    if mtime_mode not in {'off', 'reported', 'derived'}:
+        raise ValueError(f'invalid `mtime_mode`: {mtime_mode!r}')
 
     lock = threading.Lock()
     terminated = threading.Event()
@@ -118,7 +118,7 @@ def download(
                 entry0 = sanitized_paths[path]
                 if entry0 != entry:
                     raise FileExistsError(
-                        f'Sanitized filename collision: '
+                        f'sanitized filename collision: '
                         f'{entry!r} conflicts with {entry0!r} as {path}'
                     )
             else:
@@ -135,9 +135,9 @@ def download(
                     write(f'Renamed: {target} (from {file.name!r})')
             if target.exists():
                 if not target.is_file():
-                    raise FileExistsError(f'Target exists but is not a file: {target}')
+                    raise FileExistsError(f'target exists but is not a file: {target}')
                 if if_exists == 'error':
-                    raise FileExistsError(f'File already exists: {target}')
+                    raise FileExistsError(f'file already exists: {target}')
                 if if_exists == 'skip':
                     skip_list.append(DownloadEntryTarget(file, target))
                     if write is not None:
@@ -162,10 +162,10 @@ def download(
                         bytes_downloaded += downloaded
                 elif terminated.is_set():
                     # 放行 'end' 事件，因为本来任务就要结束了，仅其它事件用于协作取消
-                    raise CancelledError('download cancelled by interruption')
+                    raise CancelledError('download cancelled due to interruption')
                 if callback is not None:
                     callback(entry, file, target, event, downloaded)
-            return download_url(
+            return _download(
                 url,
                 target,
                 headers=None,
@@ -219,15 +219,15 @@ def download(
                             'press Ctrl-C again to request immediate termination.\n'
                         )
                     except Exception as write_exc:
-                        exc.add_note(f'Failed to write interruption message: {write_exc!r}')
+                        exc.add_note(f'failed to write interruption message: {write_exc!r}')
                 try:
                     executor.shutdown(wait=True, cancel_futures=True)
                 except BaseException as wait_exc:
                     terminated.set()
-                    exc.add_note(f'Interrupted while waiting for running downloads to finish: {wait_exc!r}')
+                    exc.add_note(f'interrupted while waiting for running downloads to finish: {wait_exc!r}')
                 raise
 
-    if mtime != 'off':
+    if mtime_mode != 'off':
         if write is not None:
             write('Restoring modification times...')
         @functools.cache
@@ -237,7 +237,7 @@ def download(
                 # 先转 int ，一是因为时间精度本来就只到秒，
                 # 二来担心浮点数乘完后反而可能丢失精度
                 return int(mdatetime.timestamp()) * 1_000_000_000
-            if mtime == 'derived' and isinstance(entry, Folder):
+            if mtime_mode == 'derived' and isinstance(entry, Folder):
                 return max(
                     (
                         mtime_ns

@@ -115,7 +115,7 @@ def _main(argv: list[str] | None = None) -> None:
             output_dir=output_dir,
             workers=workers,
             if_exists=if_exists,
-            mtime=mtime,
+            mtime_mode=mtime,
             callback=callback,
         )
     if not quiet:
