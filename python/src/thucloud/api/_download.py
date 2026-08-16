@@ -7,7 +7,7 @@ from concurrent.futures import CancelledError, Future, as_completed
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from typing import Literal, NamedTuple, Protocol
+from typing import Literal, NamedTuple, Protocol, assert_never
 
 import requests
 
@@ -145,10 +145,12 @@ def download(
                     if callback is not None:
                         callback(entry, file, target, 'skip', 0)
                     return target
-                else: # if_exists == 'overwrite'
+                elif if_exists == 'overwrite':
                     overwrite_list.append(DownloadEntryTarget(file, target))
                     if write is not None:
                         write(f'Overwriting: {target}')
+                else:
+                    assert_never(if_exists)
             session = None if executor is None else executor.thread_session
             url = file.raw_path
             if url is None:
@@ -185,7 +187,7 @@ def download(
     os.makedirs(output_dir, exist_ok=True)
     if isinstance(entry, File):
         target = dl(entry, output_dir)
-    else:
+    elif isinstance(entry, Folder):
         executor = SessionThreadPoolExecutor(max_workers=workers)
         futures: set[Future[Path]] = set()
 
@@ -226,6 +228,8 @@ def download(
                     terminated.set()
                     exc.add_note(f'interrupted while waiting for running downloads to finish: {wait_exc!r}')
                 raise
+    else:
+        assert_never(entry)
 
     if mtime_mode != 'off':
         if write is not None:
