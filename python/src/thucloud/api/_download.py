@@ -96,12 +96,31 @@ def download(
     同一 output_dir 不应被多个 download() 调用并发写入；
     如需这样做，调用方应自行按 output_dir 或 target path 加锁。
     """
+    t0 = time.perf_counter()
+
     if workers <= 0:
         raise ValueError(f'`workers` must be positive, got {workers!r}')
     if if_exists not in {'error', 'overwrite', 'skip'}:
         raise ValueError(f'invalid `if_exists`: {if_exists!r}')
     if mtime_mode not in {'off', 'reported', 'derived'}:
         raise ValueError(f'invalid `mtime_mode`: {mtime_mode!r}')
+
+    # 先检查文件名是否冲突
+    target2entry: dict[Path, File | Folder] = {}
+    entry2target: dict[File | Folder, Path] = {}
+    def check(entry: File | Folder, output_dir: Path):
+        target = Path(output_dir, filename_sanitizer(entry.name))
+        if target in target2entry:
+            raise FileExistsError(
+                f'sanitized filename collision: '
+                f'{entry!r} conflicts with {target2entry[target]!r} as {target}'
+            )
+        target2entry[target] = entry
+        entry2target[entry]= target
+        if isinstance(entry, Folder):
+            for f in entry:
+                check(f, target)
+    check(entry, Path(output_dir))
 
     lock = threading.Lock()
     terminated = threading.Event()
@@ -112,30 +131,14 @@ def download(
     bytes_total = entry.size
     files_downloaded = 0
     bytes_downloaded = 0
-    t0 = time.perf_counter()
 
     rename_list: list[DownloadEntryTarget[File | Folder]] = []
     skip_list: list[DownloadEntryTarget[File]] = []
     overwrite_list: list[DownloadEntryTarget[File]] = []
 
-    sanitized_paths: dict[Path, File | Folder] = {}
-    def reserve_sanitized_path(path: Path, entry: File | Folder):
-        with lock:
-            if path in sanitized_paths:
-                entry0 = sanitized_paths[path]
-                if entry0 != entry:
-                    raise FileExistsError(
-                        f'sanitized filename collision: '
-                        f'{entry!r} conflicts with {entry0!r} as {path}'
-                    )
-            else:
-                sanitized_paths[path] = entry
-
-    def dl(file: File, output_dir: str | os.PathLike[str]) -> Path:
-        target = None
+    def dl(file: File) -> Path:
+        target = entry2target[file]
         try:
-            target = Path(output_dir, filename_sanitizer(file.name))
-            reserve_sanitized_path(target, file)
             if target.name != file.name:
                 rename_list.append(DownloadEntryTarget(file, target))
                 if write is not None:
@@ -185,22 +188,18 @@ def download(
                 callback=dl_callback,
             )
         except BaseException as exc:
-            if target is None:
-                exc.add_note(f'while preparing to download {file!r}')
-            else:
-                exc.add_note(f'while downloading {file!r} to {target}')
+            exc.add_note(f'while downloading {file!r} to {target}')
             raise
 
     os.makedirs(output_dir, exist_ok=True)
     if isinstance(entry, File):
-        target = dl(entry, output_dir)
+        target = dl(entry)
     elif isinstance(entry, Folder):
         executor = SessionThreadPoolExecutor(max_workers=workers)
         futures: set[Future[Path]] = set()
 
-        def dl_folder(folder: Folder, output_dir: str | os.PathLike[str]) -> Path:
-            target = Path(output_dir, filename_sanitizer(folder.name))
-            reserve_sanitized_path(target, folder)
+        def dl_folder(folder: Folder) -> Path:
+            target = entry2target[folder]
             if target.name != folder.name:
                 rename_list.append(DownloadEntryTarget(folder, target))
                 if write is not None:
@@ -208,14 +207,14 @@ def download(
             target.mkdir(exist_ok=True)
             for f in folder:
                 if isinstance(f, File):
-                    futures.add(executor.submit(dl, f, target))
+                    futures.add(executor.submit(dl, f))
                 else:
-                    dl_folder(f, target)
+                    dl_folder(f)
             return target
 
         with executor:
             try:
-                target = dl_folder(entry, output_dir)
+                target = dl_folder(entry)
                 for future in as_completed(futures):
                     future.result()
             except BaseException as exc:
@@ -258,19 +257,19 @@ def download(
                     default=None
                 )
             return None
-        for _target, _entry in sanitized_paths.items():
+        for _target, _entry in target2entry.items():
             if (mtime_ns := get_mtime_ns(_entry)) is not None:
                 atime_ns = os.stat(_target).st_atime_ns
                 os.utime(_target, ns=(atime_ns, mtime_ns))
 
-    elapsed_seconds = time.perf_counter() - t0
+    t1 = time.perf_counter()
     return DownloadSummary(
         target=target,
         files_total=files_total,
         bytes_total=bytes_total,
         files_downloaded=files_downloaded,
         bytes_downloaded=bytes_downloaded,
-        elapsed=timedelta(seconds=elapsed_seconds),
+        elapsed=timedelta(seconds=t1 - t0),
         renamed=tuple(rename_list),
         skipped=tuple(skip_list),
         overwritten=tuple(overwrite_list),

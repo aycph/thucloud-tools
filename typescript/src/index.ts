@@ -387,6 +387,8 @@ export async function download(
         signal,
     }: DownloadConfig = {},
 ): Promise<DownloadSummary> {
+    const t0 = performance.now();
+
     if (!Number.isInteger(workers) || workers <= 0)
         throw new RangeError(`Invalid workers: ${workers}`);
     if (!['error', 'overwrite', 'skip'].includes(if_exists))
@@ -394,37 +396,39 @@ export async function download(
     if (!['off', 'reported', 'derived'].includes(mtime_mode))
         throw new RangeError(`Invalid mtime_mode: ${JSON.stringify(mtime_mode)}`);
 
+    const target2entry = new Map<string, CloudEntry>();
+    const entry2target = new Map<CloudEntry, string>();
+    (function check(entry: CloudEntry, output_dir: string) {
+        const target = pathJoin(output_dir, sanitize_filename(entry.name));
+        const entry0 = target2entry.get(target);
+        if (entry0 !== undefined) {
+            throw new Error(
+                'Sanitized filename collision: ' +
+                `${JSON.stringify(entry)} conflicts with ` +
+                `${JSON.stringify(entry0)} at ${JSON.stringify(target)}`,
+            );
+        }
+        target2entry.set(target, entry);
+        entry2target.set(entry, target);
+        if (entry instanceof CloudFolder) {
+            for (const f of entry)
+                check(f, target);
+        }
+    })(entry, output_dir);
+
     const write = callback?.write?.bind(callback);
 
     const files_total = entry instanceof CloudFile ? 1 : entry.file_count;
     const bytes_total = entry.size;
     let files_downloaded = 0;
     let bytes_downloaded = 0;
-    const t0 = performance.now();
     const renamed: DownloadEntryTarget<CloudEntry>[] = [];
     const skipped: DownloadEntryTarget<CloudFile>[] = [];
     const overwritten: DownloadEntryTarget<CloudFile>[] = [];
 
-    const sanitized_paths = new Map<string, CloudEntry>();
-    function reserve_sanitized_path(path: string, entry: CloudEntry) {
-        const entry0 = sanitized_paths.get(path);
-        if (entry0 === undefined) {
-            sanitized_paths.set(path, entry);
-        } else {
-            if (entry0 !== entry)
-                throw new Error(
-                    'Sanitized filename collision: ' +
-                    `${JSON.stringify(entry)} conflicts with ` +
-                    `${JSON.stringify(entry0)} at ${JSON.stringify(path)}`,
-                );
-        }
-    }
-
-    async function dl(file: CloudFile, output_dir: string): Promise<string> {
-        const target_name = filename_sanitizer(file.name);
-        const target = pathJoin(output_dir, target_name);
-        reserve_sanitized_path(target, file);
-        if (target_name !== file.name) {
+    async function dl(file: CloudFile): Promise<string> {
+        const target = entry2target.get(file)!;
+        if (basename(target) !== file.name) {
             renamed.push({ entry: file, target });
             write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(file.name)})`);
         }
@@ -466,29 +470,27 @@ export async function download(
     let target: string;
     await mkdir(output_dir, { recursive: true });
     if (entry instanceof CloudFile) {
-        target = await dl(entry, output_dir);
+        target = await dl(entry);
     } else if (entry instanceof CloudFolder) {
         const executor = new PromisePoolExecutor(workers);
-        async function dl_folder(folder: CloudFolder, output_dir: string): Promise<string> {
-            const target_name = filename_sanitizer(folder.name);
-            const target = pathJoin(output_dir, target_name);
-            reserve_sanitized_path(target, folder);
-            if (target_name !== folder.name) {
+        async function dl_folder(folder: CloudFolder): Promise<string> {
+            const target = entry2target.get(folder)!;
+            if (basename(target) !== folder.name) {
                 renamed.push({ entry: folder, target });
                 write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(folder.name)})`);
             }
             await mkdir(target, { recursive: true });
             await Promise.all(Iterator.from(folder).map(f => {
                 if (f instanceof CloudFile) {
-                    return executor.submit(dl, f, target);
+                    return executor.submit(dl, f);
                 } else {
-                    return dl_folder(f, target);
+                    return dl_folder(f);
                 }
             }));
             return target;
         }
         try {
-            target = await dl_folder(entry, output_dir);
+            target = await dl_folder(entry);
         } catch (error) {
             void executor.shutdown(true);
             const errMessage = error instanceof Error ? error.message : String(error);
@@ -527,7 +529,7 @@ export async function download(
             return mtime;
         }
 
-        await Promise.all(Iterator.from(sanitized_paths).map(async ([target, entry]) => {
+        await Promise.all(Iterator.from(target2entry).map(async ([target, entry]) => {
             const mtime = get_mtime(entry);
             if (mtime !== null) {
                 const atime = (await stat(target)).atime;
