@@ -449,6 +449,7 @@ export async function download(
                 overwritten.push({ entry: file, target });
                 write?.(`Overwriting: ${JSON.stringify(target)}`);
             } else {
+                if_exists satisfies never;
                 throw new Error(`Unknown if_exists: ${JSON.stringify(if_exists)}`);
             }
         }
@@ -487,10 +488,8 @@ export async function download(
             await Promise.all(Iterator.from(folder).map(f => {
                 if (f instanceof CloudFile) {
                     return executor.submit(dl, f, target);
-                } else if (f instanceof CloudFolder) {
-                    return dl_folder(f, target);
                 } else {
-                    throw new Error(`Unknown entry type: ${JSON.stringify(f)}`);
+                    return dl_folder(f, target);
                 }
             }));
             return target;
@@ -510,6 +509,7 @@ export async function download(
             await executor.shutdown();
         }
     } else {
+        entry satisfies never;
         throw new Error(`Unknown entry type: ${JSON.stringify(entry)}`);
     }
 
