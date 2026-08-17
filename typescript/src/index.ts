@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { mkdir, stat, utimes } from 'node:fs/promises';
-import { join as pathJoin } from 'node:path';
+import { basename, join as pathJoin } from 'node:path';
 import { performance } from 'node:perf_hooks';
 
 import { type ProgressCallback as _ProgressCallback, download as _download } from './download.js';
@@ -122,7 +122,7 @@ export async function parse(url: string, max_workers: number | null = 10): Promi
     const parsed = new URL(url);
     if (parsed.host !== 'cloud.tsinghua.edu.cn')
         throw new Error(`Invalid host: ${JSON.stringify(parsed.host)}`);
-    const paths = _strip(parsed.pathname, '/').split('/');
+    const paths = parsed.pathname.split('/').filter(Boolean);
     if (paths[1] === undefined || !/^[0-9a-f]{20}$/.test(paths[1]))
         throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
     if (paths[0] === 'd') {
@@ -138,13 +138,6 @@ export async function parse(url: string, max_workers: number | null = 10): Promi
     } else {
         throw new Error(`Unrecognized URL: ${JSON.stringify(url)}`);
     }
-}
-
-function _strip(str: string, chars: string): string {
-    let start = 0, end = str.length - 1;
-    while (start <= end && chars.includes(str.charAt(start))) ++start;
-    while (end >= start && chars.includes(str.charAt(end))) --end;
-    return str.slice(start, end + 1);
 }
 
 async function fetch_json<O>(url: string): Promise<O> {
@@ -253,7 +246,7 @@ async function _parse_folder(url: string, exec: Executor): Promise<CloudFolder> 
     const can_download = info.canDownload;
     const root = info.dirName;
     const path = info.relativePath;
-    const name = _strip(path, '/').split('/').pop() || root;
+    const name = basename(path) || root;
     const dirents = await _get_dirents(path, token, can_download, root, exec);
     const size = dirents.values().reduce((s, f) => s + f.size, 0);
     return new CloudFolder(
