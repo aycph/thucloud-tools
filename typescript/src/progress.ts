@@ -1,4 +1,4 @@
-import { MultiBar } from 'cli-progress';
+import cliProgress from 'cli-progress';
 import type { Options, Preset } from 'cli-progress';
 
 import { CloudFile, ProgressCallback } from './index.js';
@@ -14,11 +14,13 @@ function formatBytes(value: number): string {
 }
 
 const DEFAULT_OPTIONS: Options = {
-    format: '{percentage}%|{bar}| {value}/{total} [{duration_formatted}<{eta_formatted}] {target}',
-    formatValue(value, _options, type) {
-        if (type === 'value' || type === 'total')
-            return formatBytes(value);
-        return String(value);
+    format: '{percentage}%|{bar}|{value}/{total}[{duration_formatted}<{eta_formatted}] {target}',
+    formatValue(value, options, type) {
+        if (type === 'value')
+            return formatBytes(value).padStart(9);
+        if (type === 'total')
+            return formatBytes(value).padEnd(9);
+        return cliProgress.Format.ValueFormat(value, options, type);
     },
     fps: 1,
     barCompleteChar: '█',
@@ -34,9 +36,9 @@ export function makeProgressBarCallback(
     preset?: Preset,
     totalBarFormat: string = DEFAULT_TOTAL_BAR_FORMAT,
 ): ProgressCallback & { close: () => void } {
-    type BarType = ReturnType<MultiBar['create']>;
+    type BarType = ReturnType<cliProgress.MultiBar['create']>;
     opt = { ...DEFAULT_OPTIONS, ...opt };
-    const multibar = new MultiBar(opt, preset);
+    const multibar = new cliProgress.MultiBar(opt, preset);
     let totalBar: BarType | undefined = undefined;
     const freeBars: BarType[] = [];
     const file2bar = new Map<CloudFile, BarType>();
