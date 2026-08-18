@@ -1,5 +1,5 @@
 import { MultiBar } from 'cli-progress';
-import type { Options, Preset, SingleBar } from 'cli-progress';
+import type { Options, Preset } from 'cli-progress';
 
 import { CloudFile, ProgressCallback } from './index.js';
 
@@ -20,8 +20,10 @@ const DEFAULT_OPTIONS: Options = {
             return formatBytes(value);
         return String(value);
     },
+    fps: 1,
     barCompleteChar: '█',
     barIncompleteChar: ' ',
+    forceRedraw: true,
     autopadding: true,
 };
 
@@ -32,11 +34,12 @@ export function makeProgressBarCallback(
     preset?: Preset,
     totalBarFormat: string = DEFAULT_TOTAL_BAR_FORMAT,
 ): ProgressCallback & { close: () => void } {
+    type BarType = ReturnType<MultiBar['create']>;
     opt = { ...DEFAULT_OPTIONS, ...opt };
     const multibar = new MultiBar(opt, preset);
-    let totalBar: SingleBar | undefined = undefined;
-    const freeBars: SingleBar[] = [];
-    const file2bar = new Map<CloudFile, SingleBar>();
+    let totalBar: BarType | undefined = undefined;
+    const freeBars: BarType[] = [];
+    const file2bar = new Map<CloudFile, BarType>();
     const file2downloaded = new Map<CloudFile, number>();
     let filesDone = 0;
     let filesTotal = NaN;
@@ -52,7 +55,7 @@ export function makeProgressBarCallback(
             totalBar = multibar.create(root.size, 0, { name: root.name, filesDone, filesTotal }, { format: totalBarFormat });
         }
 
-        let bar: SingleBar;
+        let bar: BarType;
         if (root instanceof CloudFile) {
             switch (event) {
                 case 'start':
@@ -65,10 +68,12 @@ export function makeProgressBarCallback(
                         throw new Error(`Downloaded size mismatch: expected=${file.size}, actual=${downloaded}`);
                     filesDone += 1;
                     totalBar.update(downloaded, { filesDone, filesTotal });
+                    multibar.update();
                     break;
                 case 'skip':
                     filesDone += 1;
                     totalBar.increment(file.size, { filesDone, filesTotal });
+                    multibar.update();
                     break;
                 default:
                     event satisfies never;
@@ -79,6 +84,7 @@ export function makeProgressBarCallback(
         if (event === 'skip') {
             filesDone += 1;
             totalBar.increment(file.size, { filesDone, filesTotal });
+            multibar.update();
             return;
         }
 
@@ -108,11 +114,12 @@ export function makeProgressBarCallback(
                 const step = downloaded - file2downloaded.get(file)!;
                 file2downloaded.delete(file);
                 bar.increment(step);
-                bar.stop();
                 file2bar.delete(file);
                 freeBars.push(bar);
                 filesDone += 1;
                 totalBar.increment(step, { filesDone, filesTotal });
+                multibar.update();
+                bar.stop(); // 更新完才能 stop()
                 break;
             }
             default:
