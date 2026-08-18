@@ -3,8 +3,23 @@ import type { Options, Preset, SingleBar } from 'cli-progress';
 
 import { CloudFile, ProgressCallback } from './index.js';
 
+function formatBytes(value: number): string {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        ++i;
+    }
+    return `${i === 0 ? value : value.toFixed(2)}${units[i]}`;
+}
+
 const DEFAULT_OPTIONS: Options = {
-    format: '{target}: {percentage}% ({total} B) [{duration_formatted}<{eta_formatted}]',
+    format: '{target}: {percentage}% ({total}) [{duration_formatted}<{eta_formatted}]',
+    formatValue(value, _options, type) {
+        if (type === 'value' || type === 'total')
+            return formatBytes(value);
+        return String(value);
+    },
     barCompleteChar: '█',
     barIncompleteChar: ' ',
     autopadding: true,
