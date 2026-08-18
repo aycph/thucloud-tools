@@ -346,7 +346,7 @@ export type ProgressEvent = 'start' | 'progress' | 'end' | 'skip';
 
 export interface ProgressCallback {
     (root_entry: CloudEntry, file: CloudFile, target: string, event: ProgressEvent, downloaded: number): void;
-    write?: (text: string) => void;
+    log?: (text: string) => void;
 }
 
 export interface DownloadConfig {
@@ -416,7 +416,7 @@ export async function download(
         }
     })(entry, output_dir);
 
-    const write = callback?.write?.bind(callback);
+    const log = callback?.log?.bind(callback);
 
     const files_total = entry instanceof CloudFile ? 1 : entry.file_count;
     const bytes_total = entry.size;
@@ -430,7 +430,7 @@ export async function download(
         const target = entry2target.get(file)!;
         if (basename(target) !== file.name) {
             renamed.push({ entry: file, target });
-            write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(file.name)})`);
+            log?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(file.name)})\n`);
         }
         if (existsSync(target)) {
             if (!(await stat(target)).isFile())
@@ -439,12 +439,12 @@ export async function download(
                 throw new Error(`File already exists: ${JSON.stringify(target)}`);
             if (if_exists === 'skip') {
                 skipped.push({ entry: file, target });
-                write?.(`Skipped: ${JSON.stringify(target)}`);
+                log?.(`Skipped: ${JSON.stringify(target)}\n`);
                 callback?.(entry, file, target, 'skip', 0);
                 return target;
             } else if (if_exists === 'overwrite') {
                 overwritten.push({ entry: file, target });
-                write?.(`Overwriting: ${JSON.stringify(target)}`);
+                log?.(`Overwriting: ${JSON.stringify(target)}\n`);
             } else {
                 if_exists satisfies never;
                 throw new Error(`Unknown if_exists: ${JSON.stringify(if_exists)}`);
@@ -477,7 +477,7 @@ export async function download(
             const target = entry2target.get(folder)!;
             if (basename(target) !== folder.name) {
                 renamed.push({ entry: folder, target });
-                write?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(folder.name)})`);
+                log?.(`Renamed: ${JSON.stringify(target)} (from ${JSON.stringify(folder.name)})\n`);
             }
             await mkdir(target, { recursive: true });
             await Promise.all(Iterator.from(folder).map(f => {
@@ -494,10 +494,10 @@ export async function download(
         } catch (error) {
             void executor.shutdown(true);
             const errMessage = error instanceof Error ? error.message : String(error);
-            write?.(
+            log?.(
                 `Download interrupted: ${errMessage}\n` +
                 'Pending downloads have been cancelled.\n' +
-                'Waiting for running downloads to finish.\n',
+                'Waiting for running downloads to finish.\n\n',
             );
             throw error;
         } finally {
@@ -509,7 +509,7 @@ export async function download(
     }
 
     if (mtime_mode !== 'off') {
-        write?.('Restoring modification times...');
+        log?.('Restoring modification times...\n');
         const cache = new Map<CloudEntry, Date | null>();
         function get_mtime(entry: CloudEntry): Date | null {
             if (entry.last_modified !== null)
