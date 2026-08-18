@@ -14,7 +14,7 @@ function formatBytes(value: number): string {
 }
 
 const DEFAULT_OPTIONS: Options = {
-    format: '{target}: {percentage}% ({total}) [{duration_formatted}<{eta_formatted}]',
+    format: '{percentage}%|{bar}| {value}/{total} [{duration_formatted}<{eta_formatted}] {target}',
     formatValue(value, _options, type) {
         if (type === 'value' || type === 'total')
             return formatBytes(value);
