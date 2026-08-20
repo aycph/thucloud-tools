@@ -1,7 +1,7 @@
 import cliProgress from 'cli-progress';
 import type { Options, Preset } from 'cli-progress';
 
-import { CloudFile, ProgressCallback } from './index.js';
+import { CloudFile, type ProgressCallback } from './index.js';
 
 function formatBytes(value: number): string {
     const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -57,7 +57,6 @@ export function makeProgressBarCallback(
             totalBar = multibar.create(root.size, 0, { name: root.name, filesDone, filesTotal }, { format: totalBarFormat });
         }
 
-        let bar: BarType;
         if (root instanceof CloudFile) {
             switch (event) {
                 case 'start':
@@ -90,6 +89,7 @@ export function makeProgressBarCallback(
             return;
         }
 
+        let bar: BarType;
         switch (event) {
             case 'start':
                 if (freeBars.length) {
