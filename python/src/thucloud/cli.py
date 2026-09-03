@@ -4,8 +4,10 @@ import sys
 from contextlib import nullcontext
 from pathlib import Path
 
+__all__ = ['main']
 
-def pos_int(value: str) -> int:
+
+def _pos_int(value: str) -> int:
     try:
         n = int(value)
     except ValueError:
@@ -14,8 +16,7 @@ def pos_int(value: str) -> int:
         raise argparse.ArgumentTypeError('must be a positive integer')
     return n
 
-
-def build_parser() -> argparse.ArgumentParser:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description='Download files from a Tsinghua Cloud shared link.',
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -36,14 +37,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         '-j',
         '--workers',
-        type=pos_int,
+        type=_pos_int,
         default=4,
         metavar='N',
         help='number of concurrent download workers',
     )
     parser.add_argument(
         '--parse-workers',
-        type=pos_int,
+        type=_pos_int,
         default=None,
         metavar='N',
         help='number of concurrent workers for parsing; None means auto',
@@ -89,7 +90,7 @@ def _format_size(size: int, /, exact: bool = False) -> str:
     return f'{n:.2f} {units[-1]}'
 
 def _main(argv: list[str] | None = None) -> None:
-    parser = build_parser()
+    parser = _build_parser()
     args = parser.parse_args(argv)
 
     from .api import IfExists, MTimeMode, TqdmProgressCallback, download, parse
