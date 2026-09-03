@@ -10,7 +10,7 @@ from concurrent.futures import (
     FIRST_COMPLETED, Executor, Future, ThreadPoolExecutor, wait
 )
 from pathlib import Path
-from typing import Any, Literal, Protocol, Self, cast, overload, override
+from typing import Any, Final, Literal, Protocol, Self, cast, overload, override
 
 if sys.version_info < (3, 15):
     try:
@@ -26,6 +26,8 @@ __all__ = [
     'CachedProperty',
     'parse_js_obj',
     'ProgressCallback',
+    'DEFAULT_TIMEOUT',
+    'DEFAULT_CHUNK_SIZE',
     'download',
     'UrlGetter',
     'default_get',
@@ -233,8 +235,8 @@ else:
         os.link(src, dst)
         os.unlink(src)
 
-DEFAULT_TIMEOUT = (5, 10)
-DEFAULT_CHUNK_SIZE = 256 * 1024
+DEFAULT_TIMEOUT: Final[tuple[int, int]] = (5, 10)
+DEFAULT_CHUNK_SIZE: Final[int] = 256 * 1024
 
 def download(
     url: str,
