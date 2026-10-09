@@ -399,7 +399,7 @@ export async function download(
     const target2entry = new Map<string, CloudEntry>();
     const entry2target = new Map<CloudEntry, string>();
     (function check(entry: CloudEntry, output_dir: string) {
-        const target = pathJoin(output_dir, sanitize_filename(entry.name));
+        const target = pathJoin(output_dir, filename_sanitizer(entry.name));
         const entry0 = target2entry.get(target);
         if (entry0 !== undefined) {
             throw new Error(
